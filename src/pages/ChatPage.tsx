@@ -126,6 +126,72 @@ const promptTemplates: PromptTemplate[] = [
   { id: '10', category: '效率', name: '提炼摘要', prompt: '请将以下长文提炼为一段200字以内的摘要，保留核心观点：\n【粘贴原文】' },
 ];
 
+/* ============================== PPT工具配置 ============================== */
+
+const PPT_SYSTEM_PROMPT = `你是一个专业的PPT制作助手。用户会给你一个主题，你需要生成一个精美的HTML格式PPT。
+
+重要：PPT基于1920x1080分辨率(16:9)设计，所有尺寸按此标准。
+
+请严格按照以下格式输出PPT内容，每一页用 ===SLIDE=== 分隔：
+
+===SLIDE===
+<div class="slide-content" style="width: 1920px; height: 1080px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 80px; box-sizing: border-box;">
+  <h1 style="color: white; font-size: 72px; text-align: center; margin-bottom: 40px; font-weight: bold;">标题</h1>
+  <p style="color: rgba(255,255,255,0.9); font-size: 36px; text-align: center;">副标题或描述</p>
+</div>
+===SLIDE===
+
+要求：
+1. 每页PPT必须设置 width: 1920px; height: 1080px; 这是1080p标准尺寸
+2. 使用 display: flex; flex-direction: column; 来布局内容
+3. 设置合适的 padding: 80px; 确保内容不贴边
+4. 使用现代渐变背景，每页可以不同配色
+5. 字体大小要大：
+   - 封面标题: 80-96px
+   - 页面标题: 56-72px
+   - 副标题: 36-48px
+   - 正文内容: 28-36px
+   - 列表项: 28-32px
+6. 内容要有层次感，使用合适的间距(margin/gap)
+7. 一般生成5-8页PPT
+8. 每页内容不要太多，保持简洁易读
+9. 列表项使用 text-align: left; 并设置合适的宽度
+10. 可以使用图标符号（如 ✓ ★ → • ◆ ▸）来美化列表
+11. 可以使用的背景色方案：
+    - 蓝紫渐变: linear-gradient(135deg, #667eea 0%, #764ba2 100%)
+    - 青蓝渐变: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)
+    - 橙红渐变: linear-gradient(135deg, #fa709a 0%, #fee140 100%)
+    - 绿青渐变: linear-gradient(135deg, #11998e 0%, #38ef7d 100%)
+    - 深蓝渐变: linear-gradient(135deg, #0c3483 0%, #a2b6df 100%)
+    - 紫粉渐变: linear-gradient(135deg, #c471f5 0%, #fa71cd 100%)
+    - 深色商务: linear-gradient(135deg, #232526 0%, #414345 100%)
+    - 白色简约: #ffffff (配合深色文字)
+
+直接输出PPT内容，不要有其他解释文字。`;
+
+interface PPTData {
+  slides: string[];
+  title: string;
+}
+
+const parsePPTContent = (content: string): PPTData | null => {
+  if (!content.includes('===SLIDE===')) return null;
+
+  const slides = content
+    .split('===SLIDE===')
+    .map(s => s.trim())
+    .filter(s => s.length > 0 && s.includes('<div'));
+
+  if (slides.length === 0) return null;
+
+  // 尝试从第一页提取标题
+  const firstSlide = slides[0];
+  const titleMatch = firstSlide.match(/<h1[^>]*>([^<]+)<\/h1>/);
+  const title = titleMatch ? titleMatch[1] : 'PPT演示';
+
+  return { slides, title };
+};
+
 /* ============================== 主组件 ============================== */
 
 export default function ChatPage() {
@@ -138,6 +204,11 @@ export default function ChatPage() {
   const [showModeDropdown, setShowModeDropdown] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [pptMode, setPptMode] = useState(false);
+  const [showPPTModal, setShowPPTModal] = useState(false);
+  const [currentPPT, setCurrentPPT] = useState<PPTData | null>(null);
+  const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -159,6 +230,9 @@ export default function ChatPage() {
   }, []);
 
   const buildSystemPrompt = () => {
+    if (pptMode) {
+      return PPT_SYSTEM_PROMPT;
+    }
     const parts = [selectedKB.systemPrompt];
     if (selectedMode.systemPrompt) {
       parts.push(selectedMode.systemPrompt);
@@ -398,20 +472,41 @@ export default function ChatPage() {
         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
           {messages.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full text-gray-400">
-              <Bot size={48} className="mb-4 text-gray-300" />
-              <p className="text-lg font-medium text-gray-500">开始与 AI 对话</p>
-              <p className="text-sm mt-1">选择知识库和写作模式，或使用提示词模板快速开始</p>
-              <div className="mt-6 flex flex-wrap gap-2 justify-center max-w-lg">
-                {promptTemplates.slice(0, 4).map(t => (
-                  <button
-                    key={t.id}
-                    onClick={() => handleTemplateSelect(t)}
-                    className="px-3 py-1.5 text-sm border border-gray-200 rounded-full text-gray-500 hover:border-blue-300 hover:text-blue-600 hover:bg-blue-50 transition-colors"
-                  >
-                    {t.name}
-                  </button>
-                ))}
-              </div>
+              {pptMode ? (
+                <>
+                  <Presentation size={48} className="mb-4 text-orange-300" />
+                  <p className="text-lg font-medium text-gray-500">PPT 制作模式</p>
+                  <p className="text-sm mt-1">输入PPT主题，AI将为你生成精美的演示文稿</p>
+                  <div className="mt-6 flex flex-wrap gap-2 justify-center max-w-lg">
+                    {['年度工作总结', '产品发布会', '项目汇报', '培训课件'].map(topic => (
+                      <button
+                        key={topic}
+                        onClick={() => setInputText(`请帮我制作一个关于"${topic}"的PPT`)}
+                        className="px-3 py-1.5 text-sm border border-orange-200 rounded-full text-orange-500 hover:border-orange-400 hover:text-orange-600 hover:bg-orange-50 transition-colors"
+                      >
+                        {topic}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <Bot size={48} className="mb-4 text-gray-300" />
+                  <p className="text-lg font-medium text-gray-500">开始与 AI 对话</p>
+                  <p className="text-sm mt-1">选择知识库和写作模式，或使用提示词模板快速开始</p>
+                  <div className="mt-6 flex flex-wrap gap-2 justify-center max-w-lg">
+                    {promptTemplates.slice(0, 4).map(t => (
+                      <button
+                        key={t.id}
+                        onClick={() => handleTemplateSelect(t)}
+                        className="px-3 py-1.5 text-sm border border-gray-200 rounded-full text-gray-500 hover:border-blue-300 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                      >
+                        {t.name}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
           )}
 
@@ -435,14 +530,72 @@ export default function ChatPage() {
                   }`}
                 >
                   {message.role === 'assistant' ? (
-                    <div className="whitespace-pre-wrap">
-                      {message.content || (
-                        <span className="flex items-center gap-2 text-gray-400">
-                          <Loader2 size={14} className="animate-spin" />
-                          正在思考...
-                        </span>
-                      )}
-                    </div>
+                    (() => {
+                      const pptData = parsePPTContent(message.content);
+                      if (pptData && pptData.slides.length > 0) {
+                        return (
+                          <div className="space-y-3">
+                            <div className="flex items-center gap-2 text-purple-600">
+                              <Presentation size={18} />
+                              <span className="font-medium">
+                                {isStreaming ? 'PPT生成中: ' : 'PPT已生成: '}
+                                {pptData.title}
+                              </span>
+                              <span className="text-gray-400 text-xs">({pptData.slides.length}页)</span>
+                              {isStreaming && <Loader2 size={14} className="animate-spin text-purple-500" />}
+                            </div>
+                            <div
+                              className={`relative bg-gray-900 rounded-lg overflow-hidden ${isStreaming ? 'cursor-wait' : 'cursor-pointer group'}`}
+                              style={{ width: '480px', height: '270px' }}
+                              onClick={() => {
+                                if (isStreaming) return;
+                                setCurrentPPT(pptData);
+                                setCurrentSlideIndex(0);
+                                setShowPPTModal(true);
+                              }}
+                            >
+                              <div
+                                className="origin-top-left"
+                                style={{
+                                  width: '1920px',
+                                  height: '1080px',
+                                  transform: 'scale(0.25)',
+                                }}
+                              >
+                                <div
+                                  style={{ width: '100%', height: '100%' }}
+                                  dangerouslySetInnerHTML={{ __html: pptData.slides[0] }}
+                                />
+                              </div>
+                              {isStreaming ? (
+                                <div className="absolute inset-0 bg-black/50 flex flex-col items-center justify-center">
+                                  <Loader2 size={32} className="text-white animate-spin mb-2" />
+                                  <span className="text-white text-sm">PPT生成中...</span>
+                                  <span className="text-gray-400 text-xs mt-1">已生成 {pptData.slides.length} 页</span>
+                                </div>
+                              ) : (
+                                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
+                                  <div className="opacity-0 group-hover:opacity-100 transition-opacity bg-white/90 px-4 py-2 rounded-lg flex items-center gap-2 text-gray-800">
+                                    <Maximize2 size={16} />
+                                    <span>点击查看完整PPT</span>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      }
+                      return (
+                        <div className="whitespace-pre-wrap">
+                          {message.content || (
+                            <span className="flex items-center gap-2 text-gray-400">
+                              <Loader2 size={14} className="animate-spin" />
+                              {pptMode ? '正在生成PPT...' : '正在思考...'}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })()
                   ) : (
                     <div className="whitespace-pre-wrap">{message.content}</div>
                   )}
@@ -494,7 +647,7 @@ export default function ChatPage() {
                   handleTextareaInput();
                 }}
                 onKeyDown={handleKeyDown}
-                placeholder="输入消息，Shift+Enter 换行..."
+                placeholder={pptMode ? "输入PPT主题，如：人工智能发展趋势..." : "输入消息，Shift+Enter 换行..."}
                 rows={2}
                 className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent min-h-[60px] max-h-[200px] overflow-y-auto"
                 disabled={isStreaming}
@@ -563,10 +716,28 @@ export default function ChatPage() {
               )}
             </div>
 
+            {/* PPT工具按钮 */}
+            <button
+              onClick={() => {
+                setPptMode(!pptMode);
+                if (!pptMode) {
+                  setMessages([]);
+                }
+              }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-full transition-colors border ${
+                pptMode
+                  ? 'bg-orange-100 text-orange-700 border-orange-300'
+                  : 'bg-orange-50 text-orange-600 border-orange-200 hover:bg-orange-100'
+              }`}
+            >
+              <Presentation size={14} />
+              <span>{pptMode ? '退出PPT模式' : '制作PPT'}</span>
+            </button>
+
             <div className="flex-1" />
 
             <p className="text-xs text-gray-400">
-              模型: {API_CONFIG.model}
+              {pptMode ? '🎨 PPT模式' : `模型: ${API_CONFIG.model}`}
             </p>
           </div>
         </div>
@@ -620,6 +791,112 @@ export default function ChatPage() {
                 确定
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* PPT预览弹窗 */}
+      {showPPTModal && currentPPT && (
+        <div className={`fixed inset-0 bg-black flex flex-col z-50 ${isFullscreen ? '' : 'p-4 md:p-8'}`}>
+          {/* 顶部控制栏 */}
+          <div className={`flex items-center justify-between px-4 py-3 bg-gray-900/80 backdrop-blur ${isFullscreen ? '' : 'rounded-t-xl'}`}>
+            <div className="flex items-center gap-3">
+              <Presentation size={20} className="text-white" />
+              <span className="text-white font-medium">{currentPPT.title}</span>
+              <span className="text-gray-400 text-sm">
+                {currentSlideIndex + 1} / {currentPPT.slides.length}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setIsFullscreen(!isFullscreen)}
+                className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+                title={isFullscreen ? '退出全屏' : '全屏'}
+              >
+                {isFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+              </button>
+              <button
+                onClick={() => {
+                  setShowPPTModal(false);
+                  setIsFullscreen(false);
+                }}
+                className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+                title="关闭"
+              >
+                <X size={18} />
+              </button>
+            </div>
+          </div>
+
+          {/* PPT内容区 */}
+          <div className={`flex-1 flex items-center justify-center bg-gray-900 relative ${isFullscreen ? '' : 'rounded-b-xl overflow-hidden'}`}>
+            {/* 左箭头 */}
+            <button
+              onClick={() => setCurrentSlideIndex(Math.max(0, currentSlideIndex - 1))}
+              disabled={currentSlideIndex === 0}
+              className="absolute left-4 p-3 bg-white/10 hover:bg-white/20 disabled:opacity-30 disabled:cursor-not-allowed rounded-full transition-colors z-10"
+            >
+              <ChevronLeft size={24} className="text-white" />
+            </button>
+
+            {/* 幻灯片 - 1920x1080 缩放到 960x540 显示 */}
+            <div
+              className="mx-16 rounded-lg overflow-hidden shadow-2xl bg-gray-800 relative"
+              style={{ width: '960px', height: '540px' }}
+            >
+              <div
+                className="origin-top-left absolute top-0 left-0"
+                style={{
+                  width: '1920px',
+                  height: '1080px',
+                  transform: 'scale(0.5)',
+                }}
+              >
+                <div
+                  style={{ width: '100%', height: '100%' }}
+                  dangerouslySetInnerHTML={{ __html: currentPPT.slides[currentSlideIndex] }}
+                />
+              </div>
+            </div>
+
+            {/* 右箭头 */}
+            <button
+              onClick={() => setCurrentSlideIndex(Math.min(currentPPT.slides.length - 1, currentSlideIndex + 1))}
+              disabled={currentSlideIndex === currentPPT.slides.length - 1}
+              className="absolute right-4 p-3 bg-white/10 hover:bg-white/20 disabled:opacity-30 disabled:cursor-not-allowed rounded-full transition-colors z-10"
+            >
+              <ChevronRight size={24} className="text-white" />
+            </button>
+          </div>
+
+          {/* 底部缩略图 */}
+          <div className={`flex items-center gap-2 px-4 py-3 bg-gray-900/80 backdrop-blur overflow-x-auto ${isFullscreen ? '' : 'rounded-b-xl'}`}>
+            {currentPPT.slides.map((slide, index) => (
+              <button
+                key={index}
+                onClick={() => setCurrentSlideIndex(index)}
+                className={`flex-shrink-0 rounded border-2 overflow-hidden transition-all relative ${
+                  index === currentSlideIndex
+                    ? 'border-blue-500 ring-2 ring-blue-500/50'
+                    : 'border-gray-600 hover:border-gray-400'
+                }`}
+                style={{ width: '128px', height: '72px' }}
+              >
+                <div
+                  className="origin-top-left absolute top-0 left-0"
+                  style={{
+                    width: '1920px',
+                    height: '1080px',
+                    transform: 'scale(0.0667)',
+                  }}
+                >
+                  <div
+                    style={{ width: '100%', height: '100%' }}
+                    dangerouslySetInnerHTML={{ __html: slide }}
+                  />
+                </div>
+              </button>
+            ))}
           </div>
         </div>
       )}
