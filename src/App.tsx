@@ -1,9 +1,10 @@
 import { BrowserRouter as Router, Routes, Route, NavLink } from 'react-router-dom';
-import { FileText, ClipboardCheck, CalendarDays, MessageSquare } from 'lucide-react';
+import { FileText, ClipboardCheck, CalendarDays, MessageSquare, PenTool } from 'lucide-react';
 import DocumentPage from './pages/DocumentPage';
 import ApprovalPage from './pages/ApprovalPage';
 import ReportPage from './pages/ReportPage';
 import ChatPage from './pages/ChatPage';
+import AIWritingPage from './pages/AIWritingPage';
 
 function App() {
   return (
@@ -56,6 +57,16 @@ function App() {
                   <MessageSquare size={16} />
                   AI 对话
                 </NavLink>
+                <NavLink
+                  to="/writing"
+                  className={({ isActive }) =>
+                    `flex items-center gap-2 px-4 py-2 rounded-lg text-sm transition-colors ${isActive ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-600 hover:bg-gray-100'
+                    }`
+                  }
+                >
+                  <PenTool size={16} />
+                  AI 写作
+                </NavLink>
               </div>
             </div>
           </div>
@@ -68,6 +79,7 @@ function App() {
             <Route path="/approval" element={<ApprovalPage />} />
             <Route path="/report" element={<ReportPage />} />
             <Route path="/chat" element={<ChatPage />} />
+            <Route path="/writing" element={<AIWritingPage />} />
           </Routes>
         </main>
       </div>
