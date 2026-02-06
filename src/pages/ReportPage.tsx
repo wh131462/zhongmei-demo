@@ -3,7 +3,7 @@ import {
   CalendarDays, FileText, Calendar, BarChart3, Upload, Trash2, Sparkles,
   Eye, X, Loader2, FileUp, CheckCircle2, AlertCircle
 } from 'lucide-react';
-import * as mammoth from 'mammoth';
+import { parseFile } from '../services/fileParserService';
 import type { UploadedDailyFile } from '../types';
 
 type Tab = 'daily' | 'weekly' | 'monthly';
@@ -15,6 +15,16 @@ const API_CONFIG = {
 };
 
 const MAX_FILES = 10;
+
+const ACCEPTED_FILE_TYPES = [
+  '.docx', '.pdf', '.ppt', '.pptx'
+];
+const ACCEPTED_MIME_TYPES = [
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // docx
+  'application/pdf', // pdf
+  'application/vnd.ms-powerpoint', // ppt
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation', // pptx
+];
 
 export default function ReportPage() {
   const [activeTab, setActiveTab] = useState<Tab>('daily');
@@ -134,41 +144,41 @@ function DailyTab({ files, setFiles }: {
   const processFiles = async (newFiles: File[]) => {
     setError(null);
 
-    // 过滤 .docx 文件
-    const docxFiles = newFiles.filter(f =>
-      f.name.endsWith('.docx') || f.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    // 过滤支持的文件格式
+    const validFiles = newFiles.filter(f =>
+      ACCEPTED_MIME_TYPES.includes(f.type) ||
+      ACCEPTED_FILE_TYPES.some(ext => f.name.toLowerCase().endsWith(ext))
     );
 
-    if (docxFiles.length !== newFiles.length) {
-      setError('部分文件格式不支持，仅支持 .docx 格式的 Word 文件');
+    if (validFiles.length !== newFiles.length) {
+      setError('部分文件格式不支持，仅支持 .docx、.pdf、.ppt、.pptx 格式');
     }
 
     // 检查数量限制
     const remainingSlots = MAX_FILES - files.length;
-    if (docxFiles.length > remainingSlots) {
+    if (validFiles.length > remainingSlots) {
       setError(`最多只能上传 ${MAX_FILES} 个文件，当前还可上传 ${remainingSlots} 个`);
-      docxFiles.splice(remainingSlots);
+      validFiles.splice(remainingSlots);
     }
 
-    if (docxFiles.length === 0) return;
+    if (validFiles.length === 0) return;
 
     setIsProcessing(true);
 
     const newUploadedFiles: UploadedDailyFile[] = [];
 
-    for (const file of docxFiles) {
-      try {
-        const arrayBuffer = await file.arrayBuffer();
-        const result = await mammoth.extractRawText({ arrayBuffer });
+    for (const file of validFiles) {
+      const result = await parseFile(file);
 
+      if (result.success) {
         newUploadedFiles.push({
           id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
           fileName: file.name,
-          content: result.value,
+          content: result.content,
           uploadTime: Date.now(),
         });
-      } catch {
-        setError(`文件 "${file.name}" 解析失败，请确保是有效的 Word 文档`);
+      } else {
+        setError(result.error || `文件 "${file.name}" 解析失败`);
       }
     }
 
@@ -191,7 +201,7 @@ function DailyTab({ files, setFiles }: {
         <div>
           <h2 className="text-lg font-semibold">日报文件上传</h2>
           <p className="text-sm text-gray-500 mt-1">
-            上传 Word 文档（.docx），最多 {MAX_FILES} 个，系统将提取文本内容用于生成周报和月报
+            上传文档（.docx、.pdf、.ppt、.pptx），最多 {MAX_FILES} 个，系统将提取文本内容用于生成周报和月报
           </p>
         </div>
         {files.length > 0 && (
@@ -233,7 +243,7 @@ function DailyTab({ files, setFiles }: {
         <input
           ref={fileInputRef}
           type="file"
-          accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+          accept={ACCEPTED_FILE_TYPES.join(',')}
           multiple
           className="hidden"
           onChange={handleFileSelect}
@@ -254,10 +264,10 @@ function DailyTab({ files, setFiles }: {
           <div className="flex flex-col items-center">
             <Upload size={40} className={`mb-3 ${isDragging ? 'text-blue-500' : 'text-gray-400'}`} />
             <p className="text-gray-600 font-medium mb-1">
-              {isDragging ? '松开以上传文件' : '拖拽 Word 文件到这里，或点击选择'}
+              {isDragging ? '松开以上传文件' : '拖拽文件到这里，或点击选择'}
             </p>
             <p className="text-sm text-gray-400">
-              支持 .docx 格式，已上传 {files.length}/{MAX_FILES} 个
+              支持 .docx、.pdf、.ppt、.pptx 格式，已上传 {files.length}/{MAX_FILES} 个
             </p>
           </div>
         )}
@@ -311,7 +321,7 @@ function DailyTab({ files, setFiles }: {
         <div className="text-center py-8 text-gray-400 mt-4">
           <FileUp size={48} className="mx-auto mb-4 opacity-50" />
           <p>暂无上传文件</p>
-          <p className="text-sm mt-1">上传日报 Word 文档后，可在周报/月报标签页生成汇总报告</p>
+          <p className="text-sm mt-1">上传日报文档后，可在周报/月报标签页生成汇总报告</p>
         </div>
       )}
 
