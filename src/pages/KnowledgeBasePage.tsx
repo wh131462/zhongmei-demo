@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import {
   Database, Plus, Trash2, Edit3, X, Check, Upload,
   FileText, Search, FolderOpen, File, Layers, Clock,
-  HardDrive, ChevronRight, AlertCircle, Loader2
+  HardDrive, ChevronRight, AlertCircle, Loader2, Eye
 } from 'lucide-react';
 import { message } from 'antd';
 import type { KnowledgeBase, KBDocument } from '../types';
@@ -36,6 +36,7 @@ export default function KnowledgeBasePage() {
   const [selectedKB, setSelectedKB] = useState<KnowledgeBase | null>(null);
   const [uploadingDoc, setUploadingDoc] = useState(false);
   const [processingStatus, setProcessingStatus] = useState<string>('');
+  const [previewDoc, setPreviewDoc] = useState<KBDocument | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -75,7 +76,7 @@ export default function KnowledgeBasePage() {
     setShowCreateModal(true);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!formData.name.trim()) {
       message.warning('请输入知识库名称');
       return;
@@ -87,7 +88,7 @@ export default function KnowledgeBasePage() {
         description: formData.description.trim(),
       });
     } else {
-      const newKB = createKnowledgeBase(
+      const newKB = await createKnowledgeBase(
         formData.name.trim(),
         formData.description.trim()
       );
@@ -98,8 +99,8 @@ export default function KnowledgeBasePage() {
     setShowCreateModal(false);
   };
 
-  const handleDelete = (id: string) => {
-    deleteKnowledgeBase(id);
+  const handleDelete = async (id: string) => {
+    await deleteKnowledgeBase(id);
     if (selectedKB?.id === id) {
       setSelectedKB(null);
     }
@@ -144,10 +145,8 @@ export default function KnowledgeBasePage() {
       setProcessingStatus('正在分块处理...');
       await new Promise(resolve => setTimeout(resolve, 300)); // 模拟处理延迟
 
-      setProcessingStatus('正在生成向量索引...');
-      await new Promise(resolve => setTimeout(resolve, 500)); // 模拟向量化延迟
-
-      addDocumentToKB(selectedKB.id, file.name, fileType, file.size, content);
+      setProcessingStatus('正在同步到 RAGFlow...');
+      await addDocumentToKB(selectedKB.id, file.name, fileType, file.size, content, file);
 
       setProcessingStatus('处理完成');
       await new Promise(resolve => setTimeout(resolve, 300));
@@ -165,9 +164,9 @@ export default function KnowledgeBasePage() {
     }
   };
 
-  const handleRemoveDocument = (docId: string) => {
+  const handleRemoveDocument = async (docId: string) => {
     if (!selectedKB) return;
-    removeDocumentFromKB(selectedKB.id, docId);
+    await removeDocumentFromKB(selectedKB.id, docId);
     loadKnowledgeBases();
   };
 
@@ -413,13 +412,22 @@ export default function KnowledgeBasePage() {
                               <span>{formatDate(doc.uploadedAt)}</span>
                             </div>
                           </div>
-                          <button
-                            onClick={() => handleRemoveDocument(doc.id)}
-                            className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg opacity-0 group-hover:opacity-100 transition-all"
-                            title="删除文档"
-                          >
-                            <Trash2 size={16} />
-                          </button>
+                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                            <button
+                              onClick={() => setPreviewDoc(doc)}
+                              className="p-2 text-gray-400 hover:text-indigo-500 hover:bg-indigo-50 rounded-lg"
+                              title="查看分块"
+                            >
+                              <Eye size={16} />
+                            </button>
+                            <button
+                              onClick={() => handleRemoveDocument(doc.id)}
+                              className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg"
+                              title="删除文档"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -535,6 +543,94 @@ export default function KnowledgeBasePage() {
                   删除
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 分块预览弹窗 */}
+      {previewDoc && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[85vh] flex flex-col">
+            {/* 弹窗头部 */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 flex-shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-indigo-100 rounded-lg flex items-center justify-center">
+                  <Layers size={20} className="text-indigo-600" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-gray-900">文档分块预览</h3>
+                  <p className="text-sm text-gray-500">{previewDoc.fileName}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setPreviewDoc(null)}
+                className="text-gray-400 hover:text-gray-600 p-2 rounded-lg hover:bg-gray-100 transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* 统计信息 */}
+            <div className="px-6 py-3 bg-gray-50 border-b border-gray-100 flex-shrink-0">
+              <div className="flex items-center gap-6 text-sm">
+                <span className="text-gray-600">
+                  共 <span className="font-semibold text-indigo-600">{previewDoc.chunks.length}</span> 个分块
+                </span>
+                <span className="text-gray-600">
+                  文件大小：<span className="font-medium">{formatFileSize(previewDoc.fileSize)}</span>
+                </span>
+                <span className="text-gray-600">
+                  平均分块：<span className="font-medium">
+                    {previewDoc.chunks.length > 0
+                      ? Math.round(previewDoc.content.length / previewDoc.chunks.length)
+                      : 0} 字符
+                  </span>
+                </span>
+              </div>
+            </div>
+
+            {/* 分块列表 */}
+            <div className="flex-1 overflow-y-auto p-6">
+              <div className="space-y-4">
+                {previewDoc.chunks.map((chunk, index) => (
+                  <div
+                    key={chunk.id}
+                    className="border border-gray-200 rounded-lg overflow-hidden"
+                  >
+                    {/* 分块头部 */}
+                    <div className="px-4 py-2 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="w-6 h-6 bg-indigo-500 text-white text-xs font-medium rounded flex items-center justify-center">
+                          {index + 1}
+                        </span>
+                        <span className="text-sm font-medium text-gray-700">
+                          分块 {index + 1} / {previewDoc.chunks.length}
+                        </span>
+                      </div>
+                      <span className="text-xs text-gray-500">
+                        {chunk.content.length} 字符
+                      </span>
+                    </div>
+                    {/* 分块内容 */}
+                    <div className="p-4 bg-white">
+                      <pre className="text-sm text-gray-700 whitespace-pre-wrap font-sans leading-relaxed">
+                        {chunk.content}
+                      </pre>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* 底部操作 */}
+            <div className="px-6 py-4 border-t border-gray-100 bg-gray-50 flex-shrink-0">
+              <button
+                onClick={() => setPreviewDoc(null)}
+                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
+              >
+                关闭
+              </button>
             </div>
           </div>
         </div>

@@ -87,6 +87,9 @@ export interface KBDocument {
   chunks: DocumentChunk[]; // 分块后的内容
   uploadedAt: number;
   status: 'processing' | 'ready' | 'error';
+  // RAGFlow 关联
+  ragflowDocId?: string; // RAGFlow 文档 ID
+  ragflowStatus?: 'pending' | 'uploading' | 'parsing' | 'ready' | 'error';
 }
 
 // 知识库类型
@@ -99,4 +102,28 @@ export interface KnowledgeBase {
   totalSize: number;
   createdAt: number;
   updatedAt: number;
+  // RAGFlow 关联
+  ragflowDatasetId?: string; // RAGFlow 知识库 ID
+}
+
+// RAGFlow 知识库类型（后端服务）
+export interface RAGFlowKnowledgeBase {
+  id: string;
+  name: string;
+  description: string | null;
+  chunkCount: number;
+  documentCount: number;
+  tokenNum: number;
+  createDate: string;
+  updateDate: string;
+}
+
+// 统一的知识库选择项（本地或RAGFlow）
+export interface KnowledgeBaseOption {
+  id: string;
+  name: string;
+  description: string;
+  source: 'local' | 'ragflow';
+  chunkCount: number;
+  documentCount: number;
 }

@@ -11,8 +11,9 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { message, Modal } from 'antd';
 import { parseFile } from '../services/fileParserService';
-import type { KnowledgeBase } from '../types';
 import { getAllKnowledgeBases, buildPromptWithRAG } from '../services/knowledgeBaseService';
+import { buildRAGFlowPrompt } from '../services/ragflowService';
+import type { KnowledgeBase } from '../types';
 
 /* ============================== 配置与数据 ============================== */
 
@@ -572,11 +573,11 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
-  const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>(() => getAllKnowledgeBases());
-  const [selectedKB, setSelectedKB] = useState<KnowledgeBase | null>(() => getAllKnowledgeBases()[0] || null);
+  const [selectedKB, setSelectedKB] = useState<KnowledgeBase | null>(null);
+  const [showKBSelector, setShowKBSelector] = useState(false);
+  const [localKBs, setLocalKBs] = useState<KnowledgeBase[]>([]);
   const [selectedMode, setSelectedMode] = useState<WritingMode>(writingModes[0]);
   const [selectedStyle, setSelectedStyle] = useState<WritingStyle>(writingStyles[0]);
-  const [showKBModal, setShowKBModal] = useState(false);
   const [showModeDropdown, setShowModeDropdown] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -641,6 +642,7 @@ export default function ChatPage() {
   const abortControllerRef = useRef<AbortController | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const modeDropdownRef = useRef<HTMLDivElement>(null);
+  const kbSelectorRef = useRef<HTMLDivElement>(null);
   const templateFileInputRef = useRef<HTMLInputElement>(null);
 
   // 消息列表智能滚动
@@ -783,12 +785,44 @@ export default function ChatPage() {
       if (modeDropdownRef.current && !modeDropdownRef.current.contains(e.target as Node)) {
         setShowModeDropdown(false);
       }
+      if (kbSelectorRef.current && !kbSelectorRef.current.contains(e.target as Node)) {
+        setShowKBSelector(false);
+      }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const buildSystemPrompt = (userQuery: string) => {
+  // 加载本地知识库列表
+  useEffect(() => {
+    setLocalKBs(getAllKnowledgeBases());
+  }, []);
+
+  // 获取 RAG 上下文（优先使用 RAGFlow 语义检索，回退到本地关键词检索）
+  const getRAGContext = async (userQuery: string): Promise<string> => {
+    if (!selectedKB) return '';
+
+    // 优先使用 RAGFlow 语义检索
+    if (selectedKB.ragflowDatasetId) {
+      try {
+        const ragflowResult = await buildRAGFlowPrompt(userQuery, [selectedKB.ragflowDatasetId]);
+        if (ragflowResult) {
+          return ragflowResult;
+        }
+      } catch (error) {
+        console.error('RAGFlow 检索失败，回退到本地检索:', error);
+      }
+    }
+
+    // 回退到本地关键词检索
+    const localResult = buildPromptWithRAG(selectedKB, userQuery);
+    if (localResult) {
+      console.log('使用本地关键词检索');
+    }
+    return localResult;
+  };
+
+  const buildSystemPrompt = async (userQuery: string): Promise<string> => {
     let modePrompt = '';
 
     if (pptMode) {
@@ -801,7 +835,7 @@ export default function ChatPage() {
       modePrompt = REPORT_SYSTEM_PROMPT.replace('{SOURCE_CONTENT}', sourceContent);
     } else if (templateMode && templateData) {
       // 模板写作模式
-      const ragContext = selectedKB ? buildPromptWithRAG(selectedKB, userQuery) : '';
+      const ragContext = await getRAGContext(userQuery);
       const parts: string[] = [];
       if (ragContext) {
         parts.push(ragContext);
@@ -813,7 +847,7 @@ export default function ChatPage() {
       modePrompt = parts.join('\n\n');
     } else {
       // 默认模式
-      const ragContext = selectedKB ? buildPromptWithRAG(selectedKB, userQuery) : '';
+      const ragContext = await getRAGContext(userQuery);
       const parts: string[] = [];
       if (ragContext) {
         parts.push(ragContext);
@@ -861,8 +895,9 @@ export default function ChatPage() {
       const controller = new AbortController();
       abortControllerRef.current = controller;
 
+      const systemPrompt = await buildSystemPrompt(text);
       const apiMessages = [
-        { role: 'system', content: buildSystemPrompt(text) },
+        { role: 'system', content: systemPrompt },
         ...newMessages.map(m => ({ role: m.role, content: m.content })),
       ];
 
@@ -1284,8 +1319,9 @@ export default function ChatPage() {
       const controller = new AbortController();
       abortControllerRef.current = controller;
 
+      const systemPrompt = await buildSystemPrompt(text);
       const apiMessages = [
-        { role: 'system', content: buildSystemPrompt(text) },
+        { role: 'system', content: systemPrompt },
         ...newMessages.map(m => ({ role: m.role, content: m.content })),
       ];
 
@@ -2021,15 +2057,78 @@ export default function ChatPage() {
 
           {/* 底部胶囊按钮区域 */}
           <div className="flex flex-wrap items-center gap-2 mt-3">
-            {/* 知识库胶囊按钮 */}
-            <button
-              onClick={() => { setKnowledgeBases(getAllKnowledgeBases()); setShowKBModal(true); }}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-blue-50 text-blue-700 rounded-full hover:bg-blue-100 transition-colors border border-blue-200"
-            >
-              <Database size={14} />
-              <span>{selectedKB ? selectedKB.name : '不使用知识库'}</span>
-              <ChevronDown size={14} />
-            </button>
+            {/* 知识库选择按钮 */}
+            <div className="relative" ref={kbSelectorRef}>
+              <button
+                onClick={() => {
+                  if (!showKBSelector) {
+                    // 打开时刷新知识库列表
+                    setLocalKBs(getAllKnowledgeBases());
+                  }
+                  setShowKBSelector(!showKBSelector);
+                }}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-full transition-colors border ${
+                  selectedKB
+                    ? 'bg-purple-100 text-purple-700 border-purple-300'
+                    : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
+                }`}
+              >
+                <Database size={14} />
+                <span>{selectedKB ? selectedKB.name : '选择知识库'}</span>
+                <ChevronDown size={14} className={`transition-transform ${showKBSelector ? 'rotate-180' : ''}`} />
+              </button>
+              {showKBSelector && (
+                <div className="absolute bottom-full left-0 mb-2 w-64 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
+                  <div className="px-3 py-2 text-xs text-gray-500 border-b border-gray-100">
+                    本地知识库（{localKBs.length}个）
+                  </div>
+                  {localKBs.length === 0 ? (
+                    <div className="px-3 py-4 text-sm text-gray-400 text-center">
+                      暂无知识库，请先创建
+                    </div>
+                  ) : (
+                    <>
+                      {selectedKB && (
+                        <button
+                          onClick={() => {
+                            setSelectedKB(null);
+                            setShowKBSelector(false);
+                          }}
+                          className="w-full px-3 py-2 text-left text-sm text-gray-600 hover:bg-gray-50 flex items-center gap-2"
+                        >
+                          <X size={14} />
+                          <span>取消选择</span>
+                        </button>
+                      )}
+                      {localKBs.map(kb => (
+                        <button
+                          key={kb.id}
+                          onClick={() => {
+                            setSelectedKB(kb);
+                            setShowKBSelector(false);
+                          }}
+                          className={`w-full px-3 py-2 text-left text-sm hover:bg-gray-50 ${
+                            selectedKB?.id === kb.id ? 'bg-purple-50 text-purple-700' : 'text-gray-700'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="font-medium truncate">{kb.name}</span>
+                            {kb.ragflowDatasetId ? (
+                              <span className="text-xs text-green-500">已同步</span>
+                            ) : (
+                              <span className="text-xs text-gray-400">本地</span>
+                            )}
+                          </div>
+                          <div className="text-xs text-gray-400 mt-0.5">
+                            {kb.documents.length}个文档 · {kb.totalChunks}个分块
+                          </div>
+                        </button>
+                      ))}
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
 
             {/* 快速写作按钮 */}
             <button
@@ -2139,90 +2238,6 @@ export default function ChatPage() {
         </div>
       )}
 
-      {/* 知识库选择弹窗 */}
-      {showKBModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-              <h3 className="font-semibold text-gray-800 flex items-center gap-2">
-                <Database size={18} className="text-blue-600" />
-                选择知识库
-              </h3>
-              <button
-                onClick={() => setShowKBModal(false)}
-                className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-100 transition-colors"
-              >
-                <X size={20} />
-              </button>
-            </div>
-            <div className="p-3 max-h-80 overflow-y-auto">
-              {/* 不使用知识库选项 */}
-              <button
-                onClick={() => { setSelectedKB(null); setShowKBModal(false); }}
-                className={`w-full text-left px-4 py-3 rounded-lg transition-colors flex items-start gap-3 mb-1 ${
-                  selectedKB === null
-                    ? 'bg-gray-100 border-2 border-gray-300'
-                    : 'hover:bg-gray-50 border-2 border-transparent'
-                }`}
-              >
-                <div className="w-8 h-8 bg-gray-100 rounded-lg flex items-center justify-center shrink-0">
-                  <X size={16} className="text-gray-400" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className={`font-medium ${selectedKB === null ? 'text-gray-700' : 'text-gray-600'}`}>
-                    不使用知识库
-                  </p>
-                  <p className="text-xs text-gray-400 mt-0.5">AI 将仅基于自身知识回答</p>
-                </div>
-                {selectedKB === null && (
-                  <Check size={18} className="text-gray-500 shrink-0" />
-                )}
-              </button>
-
-              {/* 知识库列表 */}
-              {knowledgeBases.length === 0 ? (
-                <div className="text-center py-6 text-gray-500">
-                  <p className="text-xs text-gray-400">暂无知识库，可在知识库管理中创建</p>
-                </div>
-              ) : (
-                knowledgeBases.map(kb => (
-                  <button
-                    key={kb.id}
-                    onClick={() => { setSelectedKB(kb); setShowKBModal(false); }}
-                    className={`w-full text-left px-4 py-3 rounded-lg transition-colors flex items-start gap-3 mb-1 ${
-                      selectedKB?.id === kb.id
-                        ? 'bg-blue-50 border-2 border-blue-300'
-                        : 'hover:bg-gray-50 border-2 border-transparent'
-                    }`}
-                  >
-                    <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center shrink-0">
-                      <Database size={16} className="text-indigo-500" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className={`font-medium ${selectedKB?.id === kb.id ? 'text-blue-700' : 'text-gray-800'}`}>
-                        {kb.name}
-                      </p>
-                      <p className="text-xs text-gray-500 mt-0.5 truncate">{kb.description || '无描述'}</p>
-                      <p className="text-xs text-gray-400 mt-1">{kb.documents.length} 个文档 · {kb.totalChunks} 个分块</p>
-                    </div>
-                    {selectedKB?.id === kb.id && (
-                      <Check size={18} className="text-blue-600 shrink-0" />
-                    )}
-                  </button>
-                ))
-              )}
-            </div>
-            <div className="px-5 py-3 border-t border-gray-100 bg-gray-50">
-              <button
-                onClick={() => setShowKBModal(false)}
-                className="w-full py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
-              >
-                确定
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* PPT预览弹窗 - 全屏浅橙色风格 */}
       {showPPTModal && currentPPT && (

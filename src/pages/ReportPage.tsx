@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react';
 import {
   CalendarDays, FileText, Calendar, BarChart3, Upload, Trash2, Sparkles,
-  Eye, X, Loader2, FileUp, CheckCircle2, AlertCircle
+  Eye, X, Loader2, FileUp, CheckCircle2, AlertCircle, Download
 } from 'lucide-react';
 import { parseFile } from '../services/fileParserService';
 import type { UploadedDailyFile } from '../types';
@@ -17,18 +17,70 @@ const API_CONFIG = {
 const MAX_FILES = 10;
 
 const ACCEPTED_FILE_TYPES = [
-  '.docx', '.pdf', '.ppt', '.pptx'
+  '.docx', '.pdf'
 ];
 const ACCEPTED_MIME_TYPES = [
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // docx
   'application/pdf', // pdf
-  'application/vnd.ms-powerpoint', // ppt
-  'application/vnd.openxmlformats-officedocument.presentationml.presentation', // pptx
 ];
+
+/**
+ * 导出文本内容为 Word 文档
+ */
+const exportToWord = (content: string, filename: string) => {
+  // 将换行转为 HTML 段落
+  const paragraphs = content.split('\n').map(line => {
+    if (line.trim() === '') {
+      return '<p style="margin: 0; line-height: 1.5;">&nbsp;</p>';
+    }
+    return `<p style="margin: 0 0 8px 0; line-height: 1.8; font-size: 14px;">${line}</p>`;
+  }).join('');
+
+  const htmlContent = `
+    <!DOCTYPE html>
+    <html xmlns:o="urn:schemas-microsoft-com:office:office"
+          xmlns:w="urn:schemas-microsoft-com:office:word"
+          xmlns="http://www.w3.org/TR/REC-html40">
+    <head>
+      <meta charset="utf-8">
+      <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+      <style>
+        body {
+          font-family: "Microsoft YaHei", "SimSun", Arial, sans-serif;
+          font-size: 14px;
+          line-height: 1.8;
+          padding: 40px;
+        }
+        p {
+          margin: 0 0 8px 0;
+        }
+      </style>
+    </head>
+    <body>
+      ${paragraphs}
+    </body>
+    </html>
+  `;
+
+  const blob = new Blob(['\ufeff' + htmlContent], {
+    type: 'application/msword'
+  });
+
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `${filename}.doc`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+};
 
 export default function ReportPage() {
   const [activeTab, setActiveTab] = useState<Tab>('daily');
   const [uploadedFiles, setUploadedFiles] = useState<UploadedDailyFile[]>([]);
+  const [weeklyResult, setWeeklyResult] = useState<string>('');
+  const [monthlyResult, setMonthlyResult] = useState<string>('');
 
   return (
     <div className="space-y-6">
@@ -47,12 +99,14 @@ export default function ReportPage() {
               onClick={() => setActiveTab('weekly')}
               icon={<Calendar size={18} />}
               label="生成周报"
+              badge={weeklyResult ? 1 : undefined}
             />
             <TabButton
               active={activeTab === 'monthly'}
               onClick={() => setActiveTab('monthly')}
               icon={<BarChart3 size={18} />}
               label="生成月报"
+              badge={monthlyResult ? 1 : undefined}
             />
           </div>
         </div>
@@ -62,10 +116,19 @@ export default function ReportPage() {
             <DailyTab files={uploadedFiles} setFiles={setUploadedFiles} />
           )}
           {activeTab === 'weekly' && (
-            <WeeklyTab files={uploadedFiles} />
+            <WeeklyTab
+              files={uploadedFiles}
+              result={weeklyResult}
+              setResult={setWeeklyResult}
+            />
           )}
           {activeTab === 'monthly' && (
-            <MonthlyTab files={uploadedFiles} />
+            <MonthlyTab
+              files={uploadedFiles}
+              result={monthlyResult}
+              setResult={setMonthlyResult}
+              weeklyResult={weeklyResult}
+            />
           )}
         </div>
       </div>
@@ -151,7 +214,7 @@ function DailyTab({ files, setFiles }: {
     );
 
     if (validFiles.length !== newFiles.length) {
-      setError('部分文件格式不支持，仅支持 .docx、.pdf、.ppt、.pptx 格式');
+      setError('部分文件格式不支持，仅支持 .docx、.pdf 格式');
     }
 
     // 检查数量限制
@@ -201,7 +264,7 @@ function DailyTab({ files, setFiles }: {
         <div>
           <h2 className="text-lg font-semibold">日报文件上传</h2>
           <p className="text-sm text-gray-500 mt-1">
-            上传文档（.docx、.pdf、.ppt、.pptx），最多 {MAX_FILES} 个，系统将提取文本内容用于生成周报和月报
+            上传文档（.docx、.pdf），最多 {MAX_FILES} 个，系统将提取文本内容用于生成周报和月报
           </p>
         </div>
         {files.length > 0 && (
@@ -267,7 +330,7 @@ function DailyTab({ files, setFiles }: {
               {isDragging ? '松开以上传文件' : '拖拽文件到这里，或点击选择'}
             </p>
             <p className="text-sm text-gray-400">
-              支持 .docx、.pdf、.ppt、.pptx 格式，已上传 {files.length}/{MAX_FILES} 个
+              支持 .docx、.pdf 格式，已上传 {files.length}/{MAX_FILES} 个
             </p>
           </div>
         )}
@@ -360,10 +423,13 @@ function DailyTab({ files, setFiles }: {
 
 /* ============================== 周报生成 Tab ============================== */
 
-function WeeklyTab({ files }: { files: UploadedDailyFile[] }) {
+function WeeklyTab({ files, result, setResult }: {
+  files: UploadedDailyFile[];
+  result: string;
+  setResult: (value: string) => void;
+}) {
   const [selectedFileIds, setSelectedFileIds] = useState<Set<string>>(new Set());
   const [isGenerating, setIsGenerating] = useState(false);
-  const [result, setResult] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -399,17 +465,24 @@ function WeeklyTab({ files }: { files: UploadedDailyFile[] }) {
 
     const systemPrompt = `你是一个专业的工作报告撰写助手。用户会提供多份日报内容，请根据这些内容生成一份周报。
 
-重要规则（必须严格遵守）：
-- 用户共提供了 ${selectedFiles.length} 份日报文件，你必须逐份完整阅读每一份日报，不得跳过或遗漏任何一份
-- 每份日报的内容都用 "=== 日报 N ===" 标记了开始和结束，请确认你阅读了从日报 1 到日报 ${selectedFiles.length} 的全部内容
-- 生成周报时，必须覆盖所有日报中提到的工作事项，不能因为内容多就省略部分日报
+【核心原则 - 必须严格遵守】
+1. 完整性原则：用户共提供了 ${selectedFiles.length} 份日报，你必须逐份完整阅读每一份，从"日报 1"到"日报 ${selectedFiles.length}"，不得跳过或遗漏任何一份
+2. 真实性原则：所有内容必须100%来源于日报原文，严禁编造、推测或添加日报中未提及的任何信息
+3. 信息密度原则：保留日报中的具体细节（项目名称、任务描述、数据指标、人员等），避免空泛概括
+4. 风格一致性原则：保持与日报原文相近的表述风格和专业术语，不要过度改写
 
-输出要求：
-1. 提取并整合每一份日报中的关键工作内容，确保无遗漏
-2. 按项目或工作类别进行归类汇总
-3. 总结本周的主要成果和进展
-4. 指出遇到的问题和下周计划（如有）
-5. 语言要简洁专业，格式清晰
+【输出要求】
+1. 按项目或工作类别归类整合所有日报内容，确保每份日报的工作事项都被覆盖
+2. 保留关键细节：具体任务名称、进度百分比、数量指标、涉及人员/系统等
+3. 总结本周主要成果和进展（必须有日报依据）
+4. 列出遇到的问题和下周计划（仅当日报中有提及时才写，没有则不写）
+5. 语言简洁专业，格式清晰
+
+【禁止事项】
+- 禁止添加日报中没有的工作内容
+- 禁止使用"等"、"若干"等模糊词汇替代具体信息
+- 禁止编造数据、进度或结论
+- 禁止遗漏任何一份日报的内容
 
 请直接输出周报内容，使用纯文本格式（不要使用 Markdown 格式）。`;
 
@@ -430,7 +503,7 @@ function WeeklyTab({ files }: { files: UploadedDailyFile[] }) {
             { role: 'user', content: `以下是本周的 ${selectedFiles.length} 份日报内容，请逐份完整阅读后生成周报。注意：每一份日报都不能遗漏。\n\n${combinedContent}` }
           ],
           stream: true,
-          temperature: 0.7,
+          temperature: 0.3,
           max_tokens: 4096,
         }),
         signal: controller.signal,
@@ -608,12 +681,21 @@ function WeeklyTab({ files }: { files: UploadedDailyFile[] }) {
                   AI 生成周报
                   {isGenerating && <Loader2 size={14} className="animate-spin text-blue-500" />}
                 </h3>
-                <button
-                  onClick={handleCopy}
-                  className="px-3 py-1 text-sm text-green-700 hover:bg-green-200 rounded-lg transition-colors"
-                >
-                  复制内容
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleCopy}
+                    className="px-3 py-1 text-sm text-green-700 hover:bg-green-200 rounded-lg transition-colors"
+                  >
+                    复制内容
+                  </button>
+                  <button
+                    onClick={() => exportToWord(result, `周报_${new Date().toLocaleDateString('zh-CN').replace(/\//g, '-')}`)}
+                    className="px-3 py-1 text-sm text-green-700 hover:bg-green-200 rounded-lg transition-colors flex items-center gap-1"
+                  >
+                    <Download size={14} />
+                    导出Word
+                  </button>
+                </div>
               </div>
               <div className="p-4">
                 <pre className="whitespace-pre-wrap text-sm text-gray-700 leading-relaxed font-sans">
@@ -630,11 +712,16 @@ function WeeklyTab({ files }: { files: UploadedDailyFile[] }) {
 
 /* ============================== 月报生成 Tab ============================== */
 
-function MonthlyTab({ files }: { files: UploadedDailyFile[] }) {
+function MonthlyTab({ files, result, setResult, weeklyResult }: {
+  files: UploadedDailyFile[];
+  result: string;
+  setResult: (value: string) => void;
+  weeklyResult: string;
+}) {
   const [selectedFileIds, setSelectedFileIds] = useState<Set<string>>(new Set());
   const [isGenerating, setIsGenerating] = useState(false);
-  const [result, setResult] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
+  const [useWeeklyReport, setUseWeeklyReport] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const toggleFileSelection = (id: string) => {
@@ -656,6 +743,108 @@ function MonthlyTab({ files }: { files: UploadedDailyFile[] }) {
   };
 
   const handleGenerate = async () => {
+    // 基于周报生成月报
+    if (useWeeklyReport && weeklyResult) {
+      setIsGenerating(true);
+      setResult('');
+      setError(null);
+
+      const systemPrompt = `你是一个专业的工作报告撰写助手。用户会提供周报内容，请根据周报内容生成一份月报。
+
+【核心原则 - 必须严格遵守】
+1. 真实性原则：所有内容必须100%来源于周报原文，严禁编造、推测或添加周报中未提及的任何信息
+2. 信息密度原则：保留周报中的具体细节（项目名称、任务描述、数据指标、人员等），避免空泛概括
+3. 风格一致性原则：保持与周报原文相近的表述风格和专业术语，不要过度改写
+
+【输出要求】
+1. 将周报内容整理成月报格式，按项目或类别组织
+2. 保留关键细节：具体任务名称、进度百分比、数量指标、涉及人员/系统、时间节点等
+3. 突出本月重点项目和主要成果（必须有周报依据）
+4. 如周报中有提及完成率、效率等数据，如实汇总；若无，则不要编造
+5. 列出存在的问题和下月计划（仅当周报中有提及时才写，没有则明确说明"周报中未提及"）
+6. 语言正式专业，适合作为月度工作汇报
+
+【禁止事项】
+- 禁止添加周报中没有的工作内容
+- 禁止使用"等"、"若干"、"部分"等模糊词汇替代具体信息
+- 禁止编造数据、进度、完成率或任何结论
+- 禁止凭空推测下月计划或改进措施
+
+请直接输出月报内容，使用纯文本格式（不要使用 Markdown 格式）。`;
+
+      try {
+        const controller = new AbortController();
+        abortControllerRef.current = controller;
+
+        const response = await fetch(API_CONFIG.url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${API_CONFIG.key}`,
+          },
+          body: JSON.stringify({
+            model: API_CONFIG.model,
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: `以下是周报内容，请基于此生成月报：\n\n${weeklyResult}` }
+            ],
+            stream: true,
+            temperature: 0.3,
+            max_tokens: 8192,
+          }),
+          signal: controller.signal,
+        });
+
+        if (!response.ok) {
+          throw new Error(`API 错误: ${response.status} ${response.statusText}`);
+        }
+
+        const reader = response.body?.getReader();
+        if (!reader) throw new Error('无法获取响应流');
+
+        const decoder = new TextDecoder();
+        let fullContent = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value, { stream: true });
+          const lines = chunk.split('\n').filter(line => line.trim());
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = line.slice(6);
+              if (data === '[DONE]') continue;
+
+              try {
+                const parsed = JSON.parse(data);
+                const delta = parsed.choices?.[0]?.delta?.content;
+                if (delta) {
+                  fullContent += delta;
+                  setResult(fullContent);
+                }
+              } catch {
+                // 忽略解析错误
+              }
+            }
+          }
+        }
+      } catch (err: unknown) {
+        if (err instanceof Error && err.name === 'AbortError') {
+          // 用户主动停止
+        } else {
+          const errorMsg = err instanceof Error ? err.message : '未知错误';
+          setError(`生成失败: ${errorMsg}`);
+        }
+      } finally {
+        setIsGenerating(false);
+        abortControllerRef.current = null;
+      }
+      return;
+    }
+
+    // 基于日报生成月报
     if (selectedFileIds.size === 0) return;
 
     const selectedFiles = files.filter(f => selectedFileIds.has(f.id));
@@ -669,18 +858,26 @@ function MonthlyTab({ files }: { files: UploadedDailyFile[] }) {
 
     const systemPrompt = `你是一个专业的工作报告撰写助手。用户会提供多份日报内容，请根据这些内容生成一份月报。
 
-重要规则（必须严格遵守）：
-- 用户共提供了 ${selectedFiles.length} 份日报文件，你必须逐份完整阅读每一份日报，不得跳过或遗漏任何一份
-- 每份日报的内容都用 "=== 日报 N ===" 标记了开始和结束，请确认你阅读了从日报 1 到日报 ${selectedFiles.length} 的全部内容
-- 生成月报时，必须覆盖所有日报中提到的工作事项，不能因为内容多就省略部分日报
+【核心原则 - 必须严格遵守】
+1. 完整性原则：用户共提供了 ${selectedFiles.length} 份日报，你必须逐份完整阅读每一份，从"日报 1"到"日报 ${selectedFiles.length}"，不得跳过或遗漏任何一份
+2. 真实性原则：所有内容必须100%来源于日报原文，严禁编造、推测或添加日报中未提及的任何信息
+3. 信息密度原则：保留日报中的具体细节（项目名称、任务描述、数据指标、人员等），避免空泛概括
+4. 风格一致性原则：保持与日报原文相近的表述风格和专业术语，不要过度改写
 
-输出要求：
-1. 全面梳理所有日报中的工作内容，按重要性和类别组织，确保无遗漏
-2. 突出本月的重点项目和主要成果
-3. 总结本月工作的整体情况（完成率、效率等）
-4. 分析存在的问题和不足
-5. 提出下月工作计划和改进措施
-6. 语言要正式专业，适合作为月度工作汇报
+【输出要求】
+1. 全面梳理所有日报中的工作内容，按项目或类别组织，确保每份日报的内容都被覆盖
+2. 保留关键细节：具体任务名称、进度百分比、数量指标、涉及人员/系统、时间节点等
+3. 突出本月重点项目和主要成果（必须有日报依据，标注来源日期）
+4. 如日报中有提及完成率、效率等数据，如实汇总；若无，则不要编造
+5. 列出存在的问题和下月计划（仅当日报中有提及时才写，没有则明确说明"日报中未提及"）
+6. 语言正式专业，适合作为月度工作汇报
+
+【禁止事项】
+- 禁止添加日报中没有的工作内容
+- 禁止使用"等"、"若干"、"部分"等模糊词汇替代具体信息
+- 禁止编造数据、进度、完成率或任何结论
+- 禁止遗漏任何一份日报的内容
+- 禁止凭空推测下月计划或改进措施
 
 请直接输出月报内容，使用纯文本格式（不要使用 Markdown 格式）。`;
 
@@ -701,7 +898,7 @@ function MonthlyTab({ files }: { files: UploadedDailyFile[] }) {
             { role: 'user', content: `以下是本月的 ${selectedFiles.length} 份日报内容，请逐份完整阅读后生成月报。注意：每一份日报都不能遗漏。\n\n${combinedContent}` }
           ],
           stream: true,
-          temperature: 0.7,
+          temperature: 0.3,
           max_tokens: 8192,
         }),
         signal: controller.signal,
@@ -767,10 +964,133 @@ function MonthlyTab({ files }: { files: UploadedDailyFile[] }) {
     <div>
       <div className="mb-6">
         <h2 className="text-lg font-semibold">AI 智能生成月报</h2>
-        <p className="text-sm text-gray-500 mt-1">选择日报文件，AI 将综合分析并生成月度工作报告</p>
+        <p className="text-sm text-gray-500 mt-1">选择数据来源，AI 将综合分析并生成月度工作报告</p>
       </div>
 
-      {files.length === 0 ? (
+      {/* 数据来源选择 */}
+      <div className="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
+        <span className="text-sm font-medium text-gray-700 block mb-3">选择数据来源</span>
+        <div className="flex gap-4">
+          <label className={`flex items-center gap-2 px-4 py-2 rounded-lg cursor-pointer transition-colors ${
+            !useWeeklyReport ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'
+          }`}>
+            <input
+              type="radio"
+              name="source"
+              checked={!useWeeklyReport}
+              onChange={() => setUseWeeklyReport(false)}
+              className="hidden"
+            />
+            <FileText size={16} />
+            基于日报生成
+          </label>
+          <label className={`flex items-center gap-2 px-4 py-2 rounded-lg cursor-pointer transition-colors ${
+            useWeeklyReport ? 'bg-blue-600 text-white' : weeklyResult ? 'bg-white text-gray-700 hover:bg-gray-50' : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+          }`}>
+            <input
+              type="radio"
+              name="source"
+              checked={useWeeklyReport}
+              onChange={() => weeklyResult && setUseWeeklyReport(true)}
+              disabled={!weeklyResult}
+              className="hidden"
+            />
+            <Calendar size={16} />
+            基于周报生成
+            {!weeklyResult && <span className="text-xs">（需先生成周报）</span>}
+          </label>
+        </div>
+      </div>
+
+      {/* 基于周报生成 */}
+      {useWeeklyReport && weeklyResult ? (
+        <>
+          <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+            <span className="text-sm font-medium text-gray-700 block mb-2">周报内容预览</span>
+            <div className="max-h-48 overflow-y-auto bg-white border border-gray-200 rounded-lg p-3">
+              <pre className="whitespace-pre-wrap text-sm text-gray-600 font-sans">
+                {weeklyResult.slice(0, 500)}{weeklyResult.length > 500 ? '...' : ''}
+              </pre>
+            </div>
+            <p className="text-xs text-gray-400 mt-2">共 {weeklyResult.length} 字符</p>
+          </div>
+
+          {/* 生成按钮 */}
+          <div className="flex items-center gap-3 mb-6">
+            {isGenerating ? (
+              <button
+                onClick={handleStop}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 flex items-center gap-2 text-sm"
+              >
+                <X size={16} />
+                停止生成
+              </button>
+            ) : (
+              <button
+                onClick={handleGenerate}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2 text-sm"
+              >
+                <Sparkles size={16} />
+                基于周报生成月报
+              </button>
+            )}
+          </div>
+
+          {/* 错误提示 */}
+          {error && (
+            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-start gap-2">
+              <AlertCircle size={18} className="text-red-500 shrink-0 mt-0.5" />
+              <p className="text-sm text-red-700">{error}</p>
+            </div>
+          )}
+
+          {/* 生成中动画 */}
+          {isGenerating && !result && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-8 text-center">
+              <div className="flex items-center justify-center mb-4">
+                <span className="ai-loading-dot"></span>
+                <span className="ai-loading-dot"></span>
+                <span className="ai-loading-dot"></span>
+              </div>
+              <p className="text-blue-700 font-medium">AI 正在分析周报内容...</p>
+              <p className="text-sm text-blue-500 mt-2">整合周报内容 &middot; 分析工作成果 &middot; 生成月报</p>
+            </div>
+          )}
+
+          {/* 生成结果 */}
+          {result && (
+            <div className="border border-green-200 bg-green-50/50 rounded-lg overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-3 bg-green-100/50 border-b border-green-200">
+                <h3 className="font-semibold text-gray-800 flex items-center gap-2">
+                  <CheckCircle2 size={18} className="text-green-600" />
+                  AI 生成月报
+                  {isGenerating && <Loader2 size={14} className="animate-spin text-blue-500" />}
+                </h3>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleCopy}
+                    className="px-3 py-1 text-sm text-green-700 hover:bg-green-200 rounded-lg transition-colors"
+                  >
+                    复制内容
+                  </button>
+                  <button
+                    onClick={() => exportToWord(result, `月报_${new Date().toLocaleDateString('zh-CN').replace(/\//g, '-')}`)}
+                    className="px-3 py-1 text-sm text-green-700 hover:bg-green-200 rounded-lg transition-colors flex items-center gap-1"
+                  >
+                    <Download size={14} />
+                    导出Word
+                  </button>
+                </div>
+              </div>
+              <div className="p-4">
+                <pre className="whitespace-pre-wrap text-sm text-gray-700 leading-relaxed font-sans">
+                  {result}
+                </pre>
+              </div>
+            </div>
+          )}
+        </>
+      ) : !useWeeklyReport && files.length === 0 ? (
         <div className="text-center py-12 text-gray-400">
           <BarChart3 size={48} className="mx-auto mb-4 opacity-50" />
           <p>暂无上传的日报文件</p>
@@ -879,12 +1199,21 @@ function MonthlyTab({ files }: { files: UploadedDailyFile[] }) {
                   AI 生成月报
                   {isGenerating && <Loader2 size={14} className="animate-spin text-blue-500" />}
                 </h3>
-                <button
-                  onClick={handleCopy}
-                  className="px-3 py-1 text-sm text-green-700 hover:bg-green-200 rounded-lg transition-colors"
-                >
-                  复制内容
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleCopy}
+                    className="px-3 py-1 text-sm text-green-700 hover:bg-green-200 rounded-lg transition-colors"
+                  >
+                    复制内容
+                  </button>
+                  <button
+                    onClick={() => exportToWord(result, `月报_${new Date().toLocaleDateString('zh-CN').replace(/\//g, '-')}`)}
+                    className="px-3 py-1 text-sm text-green-700 hover:bg-green-200 rounded-lg transition-colors flex items-center gap-1"
+                  >
+                    <Download size={14} />
+                    导出Word
+                  </button>
+                </div>
               </div>
               <div className="p-4">
                 <pre className="whitespace-pre-wrap text-sm text-gray-700 leading-relaxed font-sans">
