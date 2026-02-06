@@ -4,8 +4,12 @@ import {
   ChevronDown, Loader2, Square, RotateCcw, Copy, Check, X,
   Presentation, ChevronLeft, ChevronRight, Maximize2, Minimize2,
   Upload, Download, Eye, FileEdit, Save, Printer,
-  AlignLeft, AlignCenter, AlignRight, Bold, Italic, Underline, Type
+  AlignLeft, AlignCenter, AlignRight, Bold, Italic, Underline, Type,
+  FileUp, Sparkles, BookOpen
 } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { parseFile } from '../services/fileParserService';
 import type { KnowledgeBase } from '../types';
 import { getAllKnowledgeBases, buildPromptWithRAG } from '../services/knowledgeBaseService';
 
@@ -16,6 +20,8 @@ const API_CONFIG = {
   key: 'sk-ycd03E09f7cG1',
   model: 'yantronic-o1-mini',
 };
+
+const BASE_SYSTEM_PROMPT = '你是由言创智信（北京）信息科技有限公司开发的AI助手，基于 yantronic-o1-mini 模型。';
 
 interface WritingMode {
   id: string;
@@ -109,46 +115,123 @@ const promptTemplates: PromptTemplate[] = [
 
 /* ============================== PPT工具配置 ============================== */
 
-const PPT_SYSTEM_PROMPT = `你是一个专业的PPT制作助手。用户会给你一个主题，你需要生成一个精美的HTML格式PPT。
+const PPT_SYSTEM_PROMPT = `你是一个顶级的PPT设计师。用户会给你一个主题，你需要生成一个视觉冲击力强、设计感十足的HTML格式PPT。
 
 重要：PPT基于1920x1080分辨率(16:9)设计，所有尺寸按此标准。
 
 请严格按照以下格式输出PPT内容，每一页用 ===SLIDE=== 分隔：
 
 ===SLIDE===
-<div class="slide-content" style="width: 1920px; height: 1080px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 80px; box-sizing: border-box;">
-  <h1 style="color: white; font-size: 72px; text-align: center; margin-bottom: 40px; font-weight: bold;">标题</h1>
-  <p style="color: rgba(255,255,255,0.9); font-size: 36px; text-align: center;">副标题或描述</p>
+<div style="width: 1920px; height: 1080px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); position: relative; overflow: hidden; padding: 80px; box-sizing: border-box;">
+  <!-- 装饰元素 -->
+  <div style="position: absolute; top: -100px; right: -100px; width: 400px; height: 400px; background: rgba(255,255,255,0.1); border-radius: 50%;"></div>
+  <div style="position: absolute; bottom: -50px; left: -50px; width: 300px; height: 300px; background: rgba(255,255,255,0.05); border-radius: 50%;"></div>
+  <!-- 内容区域 -->
+  <div style="position: relative; z-index: 1; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center;">
+    <h1 style="color: white; font-size: 88px; text-align: center; margin-bottom: 30px; font-weight: 800; letter-spacing: -2px; text-shadow: 0 4px 30px rgba(0,0,0,0.3);">标题</h1>
+    <p style="color: rgba(255,255,255,0.9); font-size: 36px; text-align: center; font-weight: 300;">副标题或描述</p>
+  </div>
 </div>
 ===SLIDE===
 
-要求：
-1. 每页PPT必须设置 width: 1920px; height: 1080px; 这是1080p标准尺寸
-2. 使用 display: flex; flex-direction: column; 来布局内容
-3. 设置合适的 padding: 80px; 确保内容不贴边
-4. 使用现代渐变背景，每页可以不同配色
-5. 字体大小要大：
-   - 封面标题: 80-96px
-   - 页面标题: 56-72px
-   - 副标题: 36-48px
-   - 正文内容: 28-36px
-   - 列表项: 28-32px
-6. 内容要有层次感，使用合适的间距(margin/gap)
-7. 一般生成5-8页PPT
-8. 每页内容不要太多，保持简洁易读
-9. 列表项使用 text-align: left; 并设置合适的宽度
-10. 可以使用图标符号（如 ✓ ★ → • ◆ ▸）来美化列表
-11. 可以使用的背景色方案：
-    - 蓝紫渐变: linear-gradient(135deg, #667eea 0%, #764ba2 100%)
-    - 青蓝渐变: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)
-    - 橙红渐变: linear-gradient(135deg, #fa709a 0%, #fee140 100%)
-    - 绿青渐变: linear-gradient(135deg, #11998e 0%, #38ef7d 100%)
-    - 深蓝渐变: linear-gradient(135deg, #0c3483 0%, #a2b6df 100%)
-    - 紫粉渐变: linear-gradient(135deg, #c471f5 0%, #fa71cd 100%)
-    - 深色商务: linear-gradient(135deg, #232526 0%, #414345 100%)
-    - 白色简约: #ffffff (配合深色文字)
+## 设计原则
 
-直接输出PPT内容，不要有其他解释文字。`;
+### 1. 页面布局类型（必须交替使用，避免单调）
+
+**封面页** - 居中大标题 + 副标题 + 装饰圆形
+**目录页** - 左侧大标题 + 右侧编号列表
+**内容页A** - 顶部标题 + 下方2-3个卡片并排
+**内容页B** - 左右分栏（左侧标题描述，右侧要点列表）
+**数据页** - 大数字突出显示 + 说明文字
+**时间线页** - 横向或纵向时间节点
+**对比页** - 左右两栏对比
+**总结页** - 核心要点 + 行动号召
+
+### 2. 装饰元素（每页必须添加1-3个）
+
+- 半透明圆形: \`<div style="position: absolute; top: -100px; right: -100px; width: 400px; height: 400px; background: rgba(255,255,255,0.1); border-radius: 50%;"></div>\`
+- 渐变圆环: \`<div style="position: absolute; bottom: 100px; left: 100px; width: 200px; height: 200px; border: 3px solid rgba(255,255,255,0.2); border-radius: 50%;"></div>\`
+- 装饰线条: \`<div style="position: absolute; top: 50%; left: 0; width: 100px; height: 4px; background: rgba(255,255,255,0.3);"></div>\`
+- 光晕效果: \`<div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 600px; height: 600px; background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);"></div>\`
+
+### 3. 卡片组件示例（使用SVG图标）
+
+\`\`\`html
+<div style="background: rgba(255,255,255,0.15); backdrop-filter: blur(10px); border-radius: 24px; padding: 40px; border: 1px solid rgba(255,255,255,0.2); width: 500px;">
+  <div style="width: 56px; height: 56px; background: rgba(255,255,255,0.2); border-radius: 16px; display: flex; align-items: center; justify-content: center; margin-bottom: 24px;">
+    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+    </svg>
+  </div>
+  <h3 style="color: white; font-size: 32px; margin-bottom: 16px; font-weight: 700;">卡片标题</h3>
+  <p style="color: rgba(255,255,255,0.8); font-size: 22px; line-height: 1.6;">卡片描述内容</p>
+</div>
+\`\`\`
+
+### 4. 数字突出显示
+
+\`\`\`html
+<div style="text-align: center;">
+  <span style="font-size: 120px; font-weight: 800; background: linear-gradient(135deg, #fff 0%, rgba(255,255,255,0.7) 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">98%</span>
+  <p style="color: rgba(255,255,255,0.8); font-size: 28px; margin-top: 16px;">客户满意度</p>
+</div>
+\`\`\`
+
+### 5. 精选配色方案
+
+**科技蓝紫**: \`linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)\` 配合 cyan/blue 强调色
+**商务深蓝**: \`linear-gradient(135deg, #0c1445 0%, #1a237e 100%)\` 配合金色强调
+**活力橙红**: \`linear-gradient(135deg, #ff416c 0%, #ff4b2b 100%)\` 配合白色内容
+**自然绿色**: \`linear-gradient(135deg, #134e5e 0%, #71b280 100%)\` 清新专业
+**优雅紫色**: \`linear-gradient(135deg, #2c003e 0%, #512da8 100%)\` 高端大气
+**暖色渐变**: \`linear-gradient(135deg, #f093fb 0%, #f5576c 100%)\` 年轻活力
+**极简白底**: \`#f8fafc\` 配合深色文字和彩色强调
+
+### 6. 字体规范
+
+- 封面标题: 80-96px, font-weight: 800, letter-spacing: -2px
+- 页面标题: 56-64px, font-weight: 700
+- 副标题: 32-40px, font-weight: 400
+- 正文: 24-28px, line-height: 1.8
+- 强调数字: 80-120px, font-weight: 800
+- 添加 text-shadow 增加层次感
+
+### 7. SVG图标（禁止emoji，可自由创建）
+
+图标容器样式：\`<div style="width: 56px; height: 56px; background: rgba(255,255,255,0.2); border-radius: 16px; display: flex; align-items: center; justify-content: center;">\`
+
+SVG基础格式：\`<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">...</svg>\`
+
+**参考示例**（可根据内容主题自由创建更合适的SVG图标）：
+- 闪电: \`<path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>\`
+- 火箭: \`<path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/>\`
+- 灯泡: \`<path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/>\`
+- 目标: \`<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>\`
+- 图表: \`<path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/>\`
+- 盾牌: \`<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>\`
+- 用户: \`<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>\`
+- 奖杯: \`<path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/><path d="M4 22h16"/>\`
+- 星星: \`<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>\`
+- 对勾: \`<polyline points="20 6 9 17 4 12"/>\`
+- 箭头上升: \`<polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/>\`
+
+你可以根据PPT主题自由创建语义相关的简洁SVG图标，使用基本形状（circle、rect、path、polyline、polygon、line）组合。
+
+### 8. 必须遵守
+
+1. **内容完整性最重要**：每页PPT的HTML必须是完整闭合的，确保所有div、svg等标签正确闭合
+2. 每页必须有装饰元素，避免空洞
+3. 内容区域使用 position: relative; z-index: 1; 确保在装饰之上
+4. 每页内容精简，最多3-4个要点
+5. 使用 gap/margin 确保元素间距协调
+6. 文字要有对比度，深色背景用白色文字
+7. 卡片使用毛玻璃效果 backdrop-filter: blur(10px)
+8. 一般生成6-8页，内容丰富但不冗余
+9. 不同页面使用不同布局，保持视觉新鲜感
+10. **禁止使用emoji**，图标使用SVG（可参考示例或自行创建）
+11. **确保每页HTML结构完整**，不要在生成过程中截断
+
+直接输出PPT内容，不要有任何解释文字。确保每一页都是完整的HTML结构。`;
 
 interface PPTData {
   slides: string[];
@@ -210,12 +293,30 @@ const TEMPLATE_WRITING_PROMPT = `你是一个专业的文档写作助手。用�
 
 1. 首先，用1-2句话说明你即将做什么（例如：正在根据模板和需求为您编写文档...）
 
-2. 然后，使用特殊标识包裹文档内容：
+2. 然后，使用特殊标识包裹文档内容，内容使用 Markdown 格式：
 ===DOCUMENT_START===
-[完整的文档内容]
+# 文档标题
+
+## 第一部分
+[内容...]
+
+## 第二部分
+[内容...]
+
+---
+
+**重点内容**可以加粗，列表使用 - 或数字编号
+
 ===DOCUMENT_END===
 
 3. 最后，用1-2句话做简短的完成说明（例如：文档已按照模板格式生成完成，您可以在右侧编辑器中查看和修改。）
+
+## Markdown 格式规范：
+- 使用 # 作为一级标题，## 作为二级标题，### 作为三级标题
+- 使用 **文字** 加粗重要内容
+- 使用 - 或 1. 2. 3. 创建列表
+- 使用 --- 作为分隔线
+- 使用 > 作为引用块
 
 标识说明：
 - ===DOCUMENT_START=== 和 ===DOCUMENT_END=== 必须各占一行
@@ -223,6 +324,74 @@ const TEMPLATE_WRITING_PROMPT = `你是一个专业的文档写作助手。用�
 - 如果只是回答问题或给建议，直接回复即可，不需要使用标识
 
 请根据用户的输入，生成符合模板格式的文档内容。`;
+
+/* ============================== 报告生成模式配置 ============================== */
+
+interface ReportSourceFile {
+  id: string;
+  fileName: string;
+  content: string;
+  uploadTime: number;
+}
+
+const REPORT_SYSTEM_PROMPT = `你是一个专业的深度研究报告生成助手，类似于 NotebookLM 的报告生成器。用户会提供一些来源材料，你需要基于这些材料生成一份结构化、深度分析的研究报告。
+
+## 用户提供的来源材料：
+{SOURCE_CONTENT}
+
+## 输出格式要求：
+
+请严格按照以下结构输出报告，使用 Markdown 格式，并用特殊标记包裹：
+
+===REPORT_START===
+
+# 报告标题
+
+---
+
+## 概述
+
+[对所有来源材料进行高层次概括，说明报告涉及的核心主题和范围，2-3段]
+
+---
+
+## 核心发现
+
+[从来源材料中提炼出的3-5个关键发现，每个发现用 **简短标题** 加详细说明的形式展开]
+
+---
+
+## 深度分析
+
+[对核心内容进行深入分析，包含因果关系、趋势、对比等，分多个小节，可用 ### 子标题]
+
+---
+
+## 关键数据与事实
+
+[从来源材料中提取的关键数据点、统计数据、重要事实，用列表形式呈现]
+
+---
+
+## 结论与建议
+
+[基于分析得出的结论，以及可行的建议和下一步行动方向]
+
+---
+
+## 来源参考
+
+[列出所有来源材料的文件名]
+
+===REPORT_END===
+
+## 写作规范：
+1. 使用 Markdown 格式输出，包括标题（#/##/###）、加粗（**）、列表（-）、分隔线（---）等
+2. 报告要有深度、有洞察，不是简单复述来源内容
+3. 语言专业、客观、简洁
+4. 每个章节之间用 --- 分隔
+5. 如果用户提供了额外的指示或聚焦方向，请据此调整报告重点
+6. 报告总长度在1500-3000字之间`;
 
 const TYPO_FIX_PROMPT = `在生成或处理文档内容时，请同时执行以下任务：
 1. 检查并修复所有错别字、拼写错误
@@ -281,6 +450,44 @@ const parseDocumentContent = (content: string): DocumentData | null => {
   };
 };
 
+// 解析报告内容
+interface ReportData {
+  content: string;
+  title: string;
+  beforeText: string;
+  afterText: string;
+}
+
+const parseReportContent = (content: string): ReportData | null => {
+  const startMarker = '===REPORT_START===';
+  const endMarker = '===REPORT_END===';
+
+  const startIndex = content.indexOf(startMarker);
+  if (startIndex === -1) return null;
+
+  const endIndex = content.indexOf(endMarker);
+  const hasEndMarker = endIndex !== -1 && endIndex > startIndex;
+
+  const beforeText = content.substring(0, startIndex).trim();
+  const reportContent = hasEndMarker
+    ? content.substring(startIndex + startMarker.length, endIndex).trim()
+    : content.substring(startIndex + startMarker.length).trim();
+  const afterText = hasEndMarker
+    ? content.substring(endIndex + endMarker.length).trim()
+    : '';
+
+  // 尝试从报告内容第一行提取标题
+  const lines = reportContent.split('\n').filter(l => l.trim());
+  const title = lines[0]?.trim() || '研究报告';
+
+  return {
+    content: reportContent,
+    title,
+    beforeText,
+    afterText,
+  };
+};
+
 /* ============================== 主组件 ============================== */
 
 export default function ChatPage() {
@@ -291,7 +498,6 @@ export default function ChatPage() {
   const [selectedKB, setSelectedKB] = useState<KnowledgeBase | null>(() => getAllKnowledgeBases()[0] || null);
   const [selectedMode, setSelectedMode] = useState<WritingMode>(writingModes[0]);
   const [selectedStyle, setSelectedStyle] = useState<WritingStyle>(writingStyles[0]);
-  const [selectedTemplate, setSelectedTemplate] = useState<PromptTemplate | null>(null);
   const [showKBModal, setShowKBModal] = useState(false);
   const [showModeDropdown, setShowModeDropdown] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
@@ -311,6 +517,14 @@ export default function ChatPage() {
   // 文档编辑器状态
   const [documentContent, setDocumentContent] = useState('');
   const [showDocumentEditor, setShowDocumentEditor] = useState(false);
+  const [documentPreviewMode, setDocumentPreviewMode] = useState(true); // 默认预览模式
+  // 报告生成模式状态
+  const [reportMode, setReportMode] = useState(false);
+  const [reportSourceFiles, setReportSourceFiles] = useState<ReportSourceFile[]>([]);
+  const [showReportSourceManager, setShowReportSourceManager] = useState(false);
+  const [reportContent, setReportContent] = useState('');
+  const [showReportViewer, setShowReportViewer] = useState(false);
+  const reportFileInputRef = useRef<HTMLInputElement>(null);
   const documentEditorRef = useRef<HTMLTextAreaElement>(null);
   const documentEditorContainerRef = useRef<HTMLDivElement>(null);
   const userScrollPausedRef = useRef(false); // 用户手动滚动时暂停自动滚动
@@ -384,14 +598,19 @@ export default function ChatPage() {
   }, []);
 
   const buildSystemPrompt = (userQuery: string) => {
-    if (pptMode) {
-      return PPT_SYSTEM_PROMPT;
-    }
-    // 获取知识库RAG上下文
-    const ragContext = selectedKB ? buildPromptWithRAG(selectedKB, userQuery) : '';
+    let modePrompt = '';
 
-    // 模板写作模式
-    if (templateMode && templateData) {
+    if (pptMode) {
+      modePrompt = PPT_SYSTEM_PROMPT;
+    } else if (reportMode && reportSourceFiles.length > 0) {
+      // 报告生成模式
+      const sourceContent = reportSourceFiles
+        .map((f, i) => `=== 来源 ${i + 1}：${f.fileName} ===\n${f.content}\n=== 来源 ${i + 1} 结束 ===`)
+        .join('\n\n');
+      modePrompt = REPORT_SYSTEM_PROMPT.replace('{SOURCE_CONTENT}', sourceContent);
+    } else if (templateMode && templateData) {
+      // 模板写作模式
+      const ragContext = selectedKB ? buildPromptWithRAG(selectedKB, userQuery) : '';
       const parts: string[] = [];
       if (ragContext) {
         parts.push(ragContext);
@@ -400,22 +619,25 @@ export default function ChatPage() {
       if (enableTypoFix) {
         parts.push(TYPO_FIX_PROMPT);
       }
-      parts.push('重要约束：你的回复不能使用任何Markdown格式（包括但不限于标题#、加粗**、列表-/*、代码块```、链接[]()等）。请使用纯文本格式回复，用换行和空格来组织内容结构。');
-      return parts.join('\n\n');
+      modePrompt = parts.join('\n\n');
+    } else {
+      // 默认模式
+      const ragContext = selectedKB ? buildPromptWithRAG(selectedKB, userQuery) : '';
+      const parts: string[] = [];
+      if (ragContext) {
+        parts.push(ragContext);
+      }
+      if (selectedMode.systemPrompt) {
+        parts.push(selectedMode.systemPrompt);
+      }
+      // 快速写作模式下追加风格提示词
+      if (selectedMode.id === 'quick_writing' && selectedStyle.prompt) {
+        parts.push(selectedStyle.prompt);
+      }
+      modePrompt = parts.join('\n\n');
     }
-    const parts: string[] = [];
-    if (ragContext) {
-      parts.push(ragContext);
-    }
-    if (selectedMode.systemPrompt) {
-      parts.push(selectedMode.systemPrompt);
-    }
-    // 快速写作模式下追加风格提示词
-    if (selectedMode.id === 'quick_writing' && selectedStyle.prompt) {
-      parts.push(selectedStyle.prompt);
-    }
-    parts.push('重要约束：你的回复不能使用任何Markdown格式（包括但不限于标题#、加粗**、列表-/*、代码块```、链接[]()等）。请使用纯文本格式回复，用换行和空格来组织内容结构。');
-    return parts.join('\n\n');
+
+    return `${BASE_SYSTEM_PROMPT}\n\n${modePrompt}`;
   };
 
   const handleSend = async () => {
@@ -464,7 +686,7 @@ export default function ChatPage() {
           messages: apiMessages,
           stream: true,
           temperature: 0.7,
-          max_tokens: 2048,
+          max_tokens: pptMode ? 8192 : templateMode ? 4096 : 2048,
         }),
         signal: controller.signal,
       });
@@ -569,16 +791,8 @@ export default function ChatPage() {
 
   const handleTemplateSelect = (template: PromptTemplate) => {
     setInputText(template.prompt);
-    setSelectedTemplate(template);
     setShowTemplates(false);
     textareaRef.current?.focus();
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
   };
 
   const handleTextareaInput = () => {
@@ -599,6 +813,15 @@ export default function ChatPage() {
   const handleTemplateFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    // 检查是否正在生成
+    if (isStreaming) {
+      if (!window.confirm('当前正在生成内容，确定要切换到模板写作模式吗？')) {
+        e.target.value = '';
+        return;
+      }
+      abortControllerRef.current?.abort();
+    }
 
     const fileName = file.name;
     const fileExt = fileName.split('.').pop()?.toLowerCase();
@@ -627,10 +850,19 @@ export default function ChatPage() {
         };
         saveTemplate(newTemplate); // 保存到历史记录
         setStoredTemplates(getStoredTemplates()); // 刷新列表
+        // 重置其他模式
+        setPptMode(false);
+        setReportMode(false);
+        setReportSourceFiles([]);
+        setReportContent('');
+        setShowReportViewer(false);
+        setSelectedMode(writingModes[0]);
+        // 进入模板模式
         setTemplateData(newTemplate);
         setTemplateMode(true);
-        setPptMode(false); // 退出PPT模式
         setMessages([]); // 清空对话
+        setInputText(''); // 清空输入框
+        resetTextareaHeight();
         setShowTemplateManager(false); // 关闭弹窗
       } else {
         alert('文件内容为空');
@@ -642,13 +874,6 @@ export default function ChatPage() {
 
     // 清空 input 以便再次选择同一文件
     e.target.value = '';
-  };
-
-  // 退出模板写作模式
-  const exitTemplateMode = () => {
-    setTemplateMode(false);
-    setTemplateData(null);
-    setMessages([]);
   };
 
   // 导出生成的内容
@@ -668,14 +893,304 @@ export default function ChatPage() {
     URL.revokeObjectURL(url);
   };
 
+  // 报告来源文件上传处理
+  const handleReportSourceUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+
+    const newSourceFiles: ReportSourceFile[] = [];
+
+    for (const file of files) {
+      const fileName = file.name;
+      const fileExt = fileName.split('.').pop()?.toLowerCase();
+
+      try {
+        let content = '';
+
+        if (fileExt === 'txt' || fileExt === 'md') {
+          content = await file.text();
+        } else if (fileExt === 'docx' || fileExt === 'pdf' || fileExt === 'pptx') {
+          const result = await parseFile(file);
+          if (result.success) {
+            content = result.content;
+          } else {
+            alert(`文件 "${fileName}" 解析失败: ${result.error}`);
+            continue;
+          }
+        } else {
+          alert(`不支持的文件格式: ${fileName}`);
+          continue;
+        }
+
+        if (content.trim()) {
+          newSourceFiles.push({
+            id: `src_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
+            fileName,
+            content: content.trim(),
+            uploadTime: Date.now(),
+          });
+        }
+      } catch (error) {
+        console.error(`文件 "${fileName}" 读取失败:`, error);
+        alert(`文件 "${fileName}" 读取失败`);
+      }
+    }
+
+    if (newSourceFiles.length > 0) {
+      setReportSourceFiles(prev => [...prev, ...newSourceFiles]);
+    }
+
+    e.target.value = '';
+  };
+
+  // 删除报告来源文件
+  const handleDeleteReportSource = (id: string) => {
+    setReportSourceFiles(prev => prev.filter(f => f.id !== id));
+  };
+
+  // 定义模式类型
+  type AppMode = 'normal' | 'quick_writing' | 'template' | 'ppt' | 'report';
+
+  // 获取当前活动模式
+  const getCurrentMode = (): AppMode => {
+    if (pptMode) return 'ppt';
+    if (templateMode) return 'template';
+    if (reportMode) return 'report';
+    if (selectedMode.id === 'quick_writing') return 'quick_writing';
+    return 'normal';
+  };
+
+  // 获取模式的中文名称
+  const getModeDisplayName = (mode: AppMode): string => {
+    const names: Record<AppMode, string> = {
+      normal: '普通对话',
+      quick_writing: '快速写作',
+      template: '模板写作',
+      ppt: 'PPT生成',
+      report: '报告生成',
+    };
+    return names[mode];
+  };
+
+  // 统一的模式切换函数
+  const switchMode = (targetMode: AppMode, skipConfirm = false): boolean => {
+    const currentMode = getCurrentMode();
+
+    // 如果目标模式与当前模式相同，执行退出操作
+    if (targetMode === currentMode) {
+      if (isStreaming && !skipConfirm) {
+        if (!window.confirm('当前正在生成内容，确定要退出当前模式吗？')) {
+          return false;
+        }
+        // 停止当前生成
+        abortControllerRef.current?.abort();
+      }
+      // 退出当前模式，回到普通对话
+      resetToNormalMode();
+      return true;
+    }
+
+    // 切换到新模式前检查是否正在生成
+    if (isStreaming && !skipConfirm) {
+      if (!window.confirm(`当前正在生成内容，确定要切换到${getModeDisplayName(targetMode)}模式吗？`)) {
+        return false;
+      }
+      // 停止当前生成
+      abortControllerRef.current?.abort();
+    }
+
+    // 重置所有模式状态
+    resetAllModes();
+
+    // 根据目标模式设置状态
+    switch (targetMode) {
+      case 'quick_writing':
+        setSelectedMode(writingModes[1]);
+        break;
+      case 'template':
+        setShowTemplateManager(true);
+        return true; // 模板模式需要先选择模板，不在这里直接设置
+      case 'ppt':
+        setPptMode(true);
+        setMessages([]);
+        break;
+      case 'report':
+        setReportMode(true);
+        setMessages([]);
+        break;
+      case 'normal':
+      default:
+        setSelectedMode(writingModes[0]);
+        break;
+    }
+
+    // 清空输入框
+    setInputText('');
+    resetTextareaHeight();
+
+    return true;
+  };
+
+  // 重置所有模式到普通对话状态
+  const resetAllModes = () => {
+    setPptMode(false);
+    setTemplateMode(false);
+    setTemplateData(null);
+    setReportMode(false);
+    setReportSourceFiles([]);
+    setReportContent('');
+    setShowReportViewer(false);
+    setSelectedMode(writingModes[0]);
+    setShowTemplates(false);
+    setShowModeDropdown(false);
+  };
+
+  // 重置到普通对话模式
+  const resetToNormalMode = () => {
+    resetAllModes();
+    setMessages([]);
+    setInputText('');
+    resetTextareaHeight();
+  };
+
+  // 报告生成处理（允许空输入）
+  const handleGenerateReport = async () => {
+    if (reportSourceFiles.length === 0) {
+      alert('请先上传来源材料');
+      return;
+    }
+    if (isStreaming) return;
+
+    const text = inputText.trim() || '请根据来源材料生成一份深度分析报告';
+
+    const userMessage: ChatMessage = {
+      id: String(Date.now()),
+      role: 'user',
+      content: text,
+      timestamp: Date.now(),
+    };
+
+    const newMessages = [...messages, userMessage];
+    setMessages(newMessages);
+    setInputText('');
+    setIsStreaming(true);
+    resetTextareaHeight();
+
+    const assistantMessage: ChatMessage = {
+      id: String(Date.now() + 1),
+      role: 'assistant',
+      content: '',
+      timestamp: Date.now(),
+    };
+    setMessages([...newMessages, assistantMessage]);
+
+    let reportViewerOpened = false;
+
+    try {
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+
+      const apiMessages = [
+        { role: 'system', content: buildSystemPrompt(text) },
+        ...newMessages.map(m => ({ role: m.role, content: m.content })),
+      ];
+
+      const response = await fetch(API_CONFIG.url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${API_CONFIG.key}`,
+        },
+        body: JSON.stringify({
+          model: API_CONFIG.model,
+          messages: apiMessages,
+          stream: true,
+          temperature: 0.7,
+          max_tokens: 4096,
+        }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        throw new Error(`API 错误: ${response.status} ${response.statusText}`);
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error('无法获取响应流');
+
+      const decoder = new TextDecoder();
+      let fullContent = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split('\n').filter(line => line.trim());
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6);
+            if (data === '[DONE]') continue;
+
+            try {
+              const parsed = JSON.parse(data);
+              const delta = parsed.choices?.[0]?.delta?.content;
+              if (delta) {
+                fullContent += delta;
+                setMessages(prev =>
+                  prev.map(m =>
+                    m.id === assistantMessage.id
+                      ? { ...m, content: fullContent }
+                      : m
+                  )
+                );
+
+                // 检测到报告标记时打开报告查看器
+                if (fullContent.includes('===REPORT_START===')) {
+                  if (!reportViewerOpened) {
+                    setShowReportViewer(true);
+                    reportViewerOpened = true;
+                  }
+                  const reportData = parseReportContent(fullContent);
+                  if (reportData) {
+                    setReportContent(reportData.content);
+                  }
+                }
+              }
+            } catch {
+              // 忽略解析错误
+            }
+          }
+        }
+      }
+    } catch (error: unknown) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        // 用户主动停止
+      } else {
+        const errorMsg = error instanceof Error ? error.message : '未知错误';
+        setMessages(prev =>
+          prev.map(m =>
+            m.id === assistantMessage.id
+              ? { ...m, content: `⚠️ 请求失败: ${errorMsg}\n\n请检查网络连接或API配置。` }
+              : m
+          )
+        );
+      }
+    } finally {
+      setIsStreaming(false);
+      abortControllerRef.current = null;
+    }
+  };
+
   return (
-    <div className="flex h-[calc(100vh-110px)] gap-4">
+    <div className="flex flex-col lg:flex-row h-[calc(100vh-80px)] sm:h-[calc(100vh-110px)] gap-2 sm:gap-4 p-2 sm:p-0">
       {/* 对话区 - 根据编辑器状态调整宽度 */}
       <div className={`flex flex-col bg-white rounded-lg shadow-sm overflow-hidden transition-all duration-300 ${
-        showDocumentEditor ? 'w-1/2' : 'w-full max-w-4xl mx-auto'
+        showDocumentEditor || showReportViewer ? 'w-full lg:w-1/2' : 'w-full max-w-4xl mx-auto'
       }`}>
         {/* 对话头部 */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
+        <div className="flex items-center justify-between px-3 sm:px-4 py-2 sm:py-3 border-b border-gray-200">
           <div className="flex items-center gap-2">
             <Bot size={20} className="text-blue-600" />
             <span className="font-medium text-gray-800">AI 助手</span>
@@ -694,7 +1209,7 @@ export default function ChatPage() {
         </div>
 
         {/* 消息列表 */}
-        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+        <div className="flex-1 overflow-y-auto px-3 sm:px-4 py-3 sm:py-4 space-y-3 sm:space-y-4">
           {messages.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full text-gray-400">
               {pptMode ? (
@@ -731,6 +1246,38 @@ export default function ChatPage() {
                       </button>
                     ))}
                   </div>
+                </>
+              ) : reportMode ? (
+                <>
+                  <BookOpen size={48} className="mb-4 text-emerald-400" />
+                  <p className="text-lg font-medium text-gray-500">报告生成模式</p>
+                  <p className="text-sm mt-1 text-gray-400">
+                    {reportSourceFiles.length > 0
+                      ? `已上传 ${reportSourceFiles.length} 个来源文件`
+                      : '上传来源材料，AI将生成深度分析报告'}
+                  </p>
+                  {reportSourceFiles.length === 0 ? (
+                    <button
+                      onClick={() => reportFileInputRef.current?.click()}
+                      className="mt-6 flex items-center gap-2 px-6 py-3 bg-emerald-50 text-emerald-600 rounded-xl border-2 border-dashed border-emerald-200 hover:border-emerald-400 hover:bg-emerald-100 transition-colors"
+                    >
+                      <FileUp size={20} />
+                      <span>点击上传来源材料</span>
+                    </button>
+                  ) : (
+                    <div className="mt-6 flex flex-wrap gap-2 justify-center max-w-lg">
+                      {['生成深度分析报告', '提炼核心观点和发现', '生成数据洞察报告'].map(prompt => (
+                        <button
+                          key={prompt}
+                          onClick={() => setInputText(prompt)}
+                          className="px-3 py-1.5 text-sm border border-emerald-200 rounded-full text-emerald-600 hover:border-emerald-400 hover:text-emerald-700 hover:bg-emerald-50 transition-colors"
+                        >
+                          {prompt}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <p className="text-xs text-gray-400 mt-4">支持 .txt、.md、.docx、.pdf、.pptx 格式</p>
                 </>
               ) : (
                 <>
@@ -778,18 +1325,13 @@ export default function ChatPage() {
                       if (pptData && pptData.slides.length > 0) {
                         return (
                           <div className="space-y-3">
-                            <div className="flex items-center gap-2 text-purple-600">
-                              <Presentation size={18} />
-                              <span className="font-medium">
-                                {isStreaming ? 'PPT生成中: ' : 'PPT已生成: '}
-                                {pptData.title}
-                              </span>
-                              <span className="text-gray-400 text-xs">({pptData.slides.length}页)</span>
-                              {isStreaming && <Loader2 size={14} className="animate-spin text-purple-500" />}
-                            </div>
+                            {/* PPT 预览卡片 - 现代渐变设计 */}
                             <div
-                              className={`relative bg-gray-900 rounded-lg overflow-hidden ${isStreaming ? 'cursor-wait' : 'cursor-pointer group'}`}
-                              style={{ width: '480px', height: '270px' }}
+                              className={`relative overflow-hidden rounded-2xl ${isStreaming ? 'cursor-wait' : 'cursor-pointer group'}`}
+                              style={{
+                                width: '520px',
+                                background: 'linear-gradient(135deg, #334155 0%, #475569 50%, #64748b 100%)',
+                              }}
                               onClick={() => {
                                 if (isStreaming) return;
                                 setCurrentPPT(pptData);
@@ -797,31 +1339,98 @@ export default function ChatPage() {
                                 setShowPPTModal(true);
                               }}
                             >
-                              <div
-                                className="origin-top-left"
-                                style={{
-                                  width: '1920px',
-                                  height: '1080px',
-                                  transform: 'scale(0.25)',
-                                }}
-                              >
-                                <div
-                                  style={{ width: '100%', height: '100%' }}
-                                  dangerouslySetInnerHTML={{ __html: pptData.slides[0] }}
-                                />
+                              {/* 装饰性背景元素 */}
+                              <div className="absolute inset-0 overflow-hidden">
+                                <div className="absolute -top-10 -right-10 w-40 h-40 bg-slate-400/20 rounded-full blur-3xl" />
+                                <div className="absolute -bottom-10 -left-10 w-32 h-32 bg-slate-500/20 rounded-full blur-3xl" />
+                                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-slate-400/10 rounded-full blur-3xl" />
                               </div>
-                              {isStreaming ? (
-                                <div className="absolute inset-0 bg-black/50 flex flex-col items-center justify-center">
-                                  <Loader2 size={32} className="text-white animate-spin mb-2" />
-                                  <span className="text-white text-sm">PPT生成中...</span>
-                                  <span className="text-gray-400 text-xs mt-1">已生成 {pptData.slides.length} 页</span>
-                                </div>
-                              ) : (
-                                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
-                                  <div className="opacity-0 group-hover:opacity-100 transition-opacity bg-white/90 px-4 py-2 rounded-lg flex items-center gap-2 text-gray-800">
-                                    <Maximize2 size={16} />
-                                    <span>点击查看完整PPT</span>
+
+                              {/* 顶部标题区域 */}
+                              <div className="relative px-5 pt-4 pb-3">
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-3">
+                                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${isStreaming ? 'bg-slate-400/30 animate-pulse' : 'bg-white/10 backdrop-blur-sm group-hover:bg-white/20'} transition-all`}>
+                                      <Presentation size={20} className="text-white" />
+                                    </div>
+                                    <div>
+                                      <h4 className="text-white font-semibold text-sm truncate max-w-[280px]">
+                                        {pptData.title}
+                                      </h4>
+                                      <div className="flex items-center gap-2 mt-0.5">
+                                        <span className="text-slate-300/80 text-xs">{pptData.slides.length} 页幻灯片</span>
+                                        {isStreaming && (
+                                          <span className="flex items-center gap-1 text-xs text-slate-300 bg-slate-500/30 px-2 py-0.5 rounded-full">
+                                            <Loader2 size={10} className="animate-spin" />
+                                            生成中
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
                                   </div>
+                                  {!isStreaming && (
+                                    <div className="flex items-center gap-1.5 text-white/70 opacity-0 group-hover:opacity-100 transition-opacity">
+                                      <Eye size={14} />
+                                      <span className="text-xs">预览</span>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* PPT 预览区域 */}
+                              <div className="relative px-5 pb-4">
+                                <div
+                                  className="relative rounded-xl overflow-hidden shadow-2xl ring-1 ring-white/10"
+                                  style={{ width: '480px', height: '270px' }}
+                                >
+                                  <div
+                                    className="origin-top-left"
+                                    style={{
+                                      width: '1920px',
+                                      height: '1080px',
+                                      transform: 'scale(0.25)',
+                                    }}
+                                  >
+                                    <div
+                                      style={{ width: '100%', height: '100%' }}
+                                      dangerouslySetInnerHTML={{ __html: pptData.slides[0] }}
+                                    />
+                                  </div>
+                                  {/* 悬浮遮罩 */}
+                                  {!isStreaming && (
+                                    <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-center pb-4">
+                                      <div className="flex items-center gap-2 bg-white/95 backdrop-blur-sm px-4 py-2 rounded-full shadow-lg transform translate-y-2 group-hover:translate-y-0 transition-transform">
+                                        <Maximize2 size={14} className="text-gray-700" />
+                                        <span className="text-sm font-medium text-gray-700">点击查看完整PPT</span>
+                                      </div>
+                                    </div>
+                                  )}
+                                  {/* 生成中遮罩 */}
+                                  {isStreaming && (
+                                    <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px] flex flex-col items-center justify-center">
+                                      <div className="relative">
+                                        <div className="w-12 h-12 border-4 border-slate-300/30 rounded-full" />
+                                        <div className="absolute inset-0 w-12 h-12 border-4 border-transparent border-t-slate-300 rounded-full animate-spin" />
+                                      </div>
+                                      <span className="text-white text-sm mt-3 font-medium">正在生成精美PPT...</span>
+                                      <span className="text-slate-300/70 text-xs mt-1">已完成 {pptData.slides.length} 页</span>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* 底部页码指示器 */}
+                              {pptData.slides.length > 1 && (
+                                <div className="relative px-5 pb-4 flex justify-center gap-1.5">
+                                  {pptData.slides.slice(0, Math.min(7, pptData.slides.length)).map((_, idx) => (
+                                    <div
+                                      key={idx}
+                                      className={`h-1.5 rounded-full transition-all ${idx === 0 ? 'w-4 bg-white' : 'w-1.5 bg-white/40'}`}
+                                    />
+                                  ))}
+                                  {pptData.slides.length > 7 && (
+                                    <span className="text-white/50 text-xs ml-1">+{pptData.slides.length - 7}</span>
+                                  )}
                                 </div>
                               )}
                             </div>
@@ -901,17 +1510,87 @@ export default function ChatPage() {
                             </div>
                             {/* 文档后的文字 */}
                             {docData.afterText && (
-                              <div className="whitespace-pre-wrap">{docData.afterText}</div>
+                              <article className="prose prose-sm max-w-none prose-headings:text-gray-800 prose-p:text-gray-700 prose-p:leading-relaxed">
+                                <ReactMarkdown remarkPlugins={[remarkGfm]}>{docData.afterText}</ReactMarkdown>
+                              </article>
+                            )}
+                          </div>
+                        );
+                      }
+                      // 检查是否有报告内容
+                      const rptData = parseReportContent(message.content);
+                      if (rptData) {
+                        return (
+                          <div className="space-y-3">
+                            {rptData.beforeText && (
+                              <article className="prose prose-sm max-w-none prose-headings:text-gray-800 prose-p:text-gray-700 prose-p:leading-relaxed">
+                                <ReactMarkdown remarkPlugins={[remarkGfm]}>{rptData.beforeText}</ReactMarkdown>
+                              </article>
+                            )}
+                            <div
+                              className={`relative overflow-hidden rounded-xl border ${isStreaming ? 'cursor-default' : 'cursor-pointer group'} transition-all duration-300 hover:shadow-lg`}
+                              style={{ background: 'linear-gradient(135deg, #d1fae5 0%, #a7f3d0 30%, #6ee7b7 70%, #34d399 100%)' }}
+                              onClick={() => { if (isStreaming) return; setReportContent(rptData.content); setShowReportViewer(true); }}
+                            >
+                              <div className="absolute inset-0 opacity-10">
+                                <div className="absolute top-4 right-4 w-32 h-32 border-4 border-emerald-700 rounded-full" />
+                                <div className="absolute bottom-4 left-4 w-24 h-24 border-4 border-teal-700 rounded-lg rotate-12" />
+                              </div>
+                              <div className="relative px-5 py-4">
+                                <div className="flex items-center gap-3">
+                                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${isStreaming ? 'bg-emerald-200 animate-pulse' : 'bg-white/80 shadow-sm group-hover:shadow-md'} transition-all`}>
+                                    <BookOpen size={24} className="text-emerald-600" />
+                                  </div>
+                                  <div className="flex-1">
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-semibold text-emerald-900">{rptData.title}</span>
+                                      {isStreaming && (
+                                        <span className="flex items-center gap-1 text-xs text-emerald-700 bg-emerald-200 px-2 py-0.5 rounded-full">
+                                          <Loader2 size={10} className="animate-spin" />
+                                          生成中
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="flex items-center gap-3 mt-1 text-xs text-emerald-700/70">
+                                      <span>{rptData.content.length} 字符</span>
+                                      <span>&middot;</span>
+                                      <span>{reportSourceFiles.length} 个来源</span>
+                                    </div>
+                                  </div>
+                                  {!isStreaming && (
+                                    <div className="flex items-center gap-1 text-emerald-700 opacity-0 group-hover:opacity-100 transition-opacity">
+                                      <Eye size={16} />
+                                      <span className="text-sm">查看</span>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                              {isStreaming && (
+                                <div className="h-1 bg-emerald-200">
+                                  <div className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 animate-pulse" style={{ width: '60%' }} />
+                                </div>
+                              )}
+                            </div>
+                            {rptData.afterText && (
+                              <article className="prose prose-sm max-w-none prose-headings:text-gray-800 prose-p:text-gray-700 prose-p:leading-relaxed">
+                                <ReactMarkdown remarkPlugins={[remarkGfm]}>{rptData.afterText}</ReactMarkdown>
+                              </article>
                             )}
                           </div>
                         );
                       }
                       return (
-                        <div className="whitespace-pre-wrap">
-                          {message.content || (
+                        <div>
+                          {message.content ? (
+                            <article className="prose prose-sm max-w-none prose-headings:text-gray-800 prose-h1:text-lg prose-h1:font-bold prose-h2:text-base prose-h2:font-semibold prose-h3:text-sm prose-h3:font-semibold prose-hr:my-3 prose-p:text-gray-700 prose-p:leading-relaxed prose-p:my-1.5 prose-strong:text-gray-800 prose-ul:my-1.5 prose-li:my-0.5 prose-blockquote:text-gray-600 prose-blockquote:border-gray-300">
+                              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                {message.content}
+                              </ReactMarkdown>
+                            </article>
+                          ) : (
                             <span className="flex items-center gap-2 text-gray-400">
                               <Loader2 size={14} className="animate-spin" />
-                              {pptMode ? '正在生成PPT...' : templateMode ? '正在生成文档...' : '正在思考...'}
+                              {pptMode ? '正在生成PPT...' : reportMode ? '正在生成报告...' : templateMode ? '正在生成文档...' : '正在思考...'}
                             </span>
                           )}
                         </div>
@@ -957,7 +1636,7 @@ export default function ChatPage() {
         </div>
 
         {/* 输入区 */}
-        <div className="border-t border-gray-200 px-4 py-3">
+        <div className="border-t border-gray-200 px-3 sm:px-4 py-2 sm:py-3">
           {/* 模板写作模式 - 输入框左上角显示模板选择 */}
           {templateMode && (
             <div className="flex items-center gap-2 mb-2">
@@ -996,19 +1675,19 @@ export default function ChatPage() {
           )}
 
           {/* 快速写作模式下显示模板和风格按钮 - 输入框左上角 */}
-          {selectedMode.id === 'quick_writing' && !templateMode && (
+          {selectedMode.id === 'quick_writing' && !templateMode && !reportMode && (
             <div className="flex items-center gap-2 mb-2">
               {/* 模板按钮 */}
               <button
                 onClick={() => setShowTemplates(!showTemplates)}
                 className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg transition-colors ${
-                  showTemplates || selectedTemplate
+                  showTemplates
                     ? 'bg-green-100 text-green-700 border border-green-300'
                     : 'bg-gray-100 text-gray-600 hover:bg-green-50 hover:text-green-700 border border-gray-200'
                 }`}
               >
                 <FileText size={14} />
-                {selectedTemplate ? selectedTemplate.name : '模板'}
+                模板
                 <ChevronDown size={12} className={`transition-transform ${showTemplates ? 'rotate-180' : ''}`} />
               </button>
 
@@ -1048,36 +1727,98 @@ export default function ChatPage() {
             </div>
           )}
 
-          <div className="flex items-end gap-2">
-            <div className="flex-1 relative">
-              <textarea
-                ref={textareaRef}
-                value={inputText}
-                onChange={(e) => {
-                  setInputText(e.target.value);
-                  handleTextareaInput();
-                }}
-                onKeyDown={handleKeyDown}
-                placeholder={pptMode ? "输入PPT主题，如：人工智能发展趋势..." : templateMode ? "输入写作需求，AI将根据模板格式生成内容..." : selectedMode.id === 'quick_writing' ? "选择模板或直接输入内容..." : "输入消息，Shift+Enter 换行..."}
-                rows={2}
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent min-h-[60px] max-h-[200px] overflow-y-auto"
-                disabled={isStreaming}
-              />
+          {/* 报告生成模式 - 输入框左上角显示上传来源 */}
+          {reportMode && (
+            <div className="flex items-center gap-2 mb-2">
+              {/* 上传来源按钮 */}
+              <button
+                onClick={() => reportFileInputRef.current?.click()}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg transition-colors bg-emerald-100 text-emerald-700 border border-emerald-300 hover:bg-emerald-200"
+              >
+                <FileUp size={14} />
+                上传来源
+              </button>
+              {/* 来源文件数量 */}
+              {reportSourceFiles.length > 0 && (
+                <>
+                  <button
+                    onClick={() => setShowReportSourceManager(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg transition-colors bg-emerald-50 text-emerald-600 border border-emerald-200 hover:bg-emerald-100"
+                    title="管理来源文件"
+                  >
+                    <Eye size={14} />
+                    {reportSourceFiles.length} 个来源
+                  </button>
+                </>
+              )}
+              {/* 导出报告 */}
+              {reportContent && (
+                <button
+                  onClick={() => {
+                    const blob = new Blob([reportContent], { type: 'text/plain;charset=utf-8' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `研究报告_${new Date().toLocaleDateString()}.txt`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg transition-colors bg-gray-100 text-gray-600 hover:bg-emerald-50 hover:text-emerald-600 border border-gray-200"
+                  title="导出报告"
+                >
+                  <Download size={14} />
+                  导出
+                </button>
+              )}
             </div>
+          )}
+
+          <div className="flex items-end gap-3 p-3 bg-gray-50 rounded-2xl border border-gray-200 shadow-sm focus-within:border-blue-400 focus-within:shadow-md transition-all">
+            <textarea
+              ref={textareaRef}
+              value={inputText}
+              onChange={(e) => {
+                setInputText(e.target.value);
+                handleTextareaInput();
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  if (reportMode) {
+                    handleGenerateReport();
+                  } else {
+                    handleSend();
+                  }
+                }
+              }}
+              placeholder={pptMode ? "输入PPT主题，如：人工智能发展趋势..." : reportMode ? "输入报告方向或要求（可选），直接点击生成..." : templateMode ? "输入写作需求，AI将根据模板格式生成内容..." : selectedMode.id === 'quick_writing' ? "选择模板或直接输入内容..." : "输入消息，Shift+Enter 换行..."}
+              rows={1}
+              className="flex-1 bg-transparent px-1 py-2 text-sm resize-none focus:outline-none min-h-[40px] max-h-[200px] overflow-y-auto placeholder-gray-400 scrollbar-hide"
+              disabled={isStreaming}
+            />
 
             {isStreaming ? (
               <button
                 onClick={handleStop}
-                className="p-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors shrink-0"
+                className="flex items-center justify-center w-10 h-10 bg-red-500 text-white rounded-xl hover:bg-red-600 transition-all shadow-sm hover:shadow shrink-0"
                 title="停止生成"
               >
                 <Square size={18} />
+              </button>
+            ) : reportMode ? (
+              <button
+                onClick={handleGenerateReport}
+                disabled={reportSourceFiles.length === 0}
+                className="flex items-center justify-center w-10 h-10 bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-all shadow-sm hover:shadow shrink-0"
+                title="生成报告"
+              >
+                <Sparkles size={18} />
               </button>
             ) : (
               <button
                 onClick={handleSend}
                 disabled={!inputText.trim()}
-                className="p-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors shrink-0"
+                className="flex items-center justify-center w-10 h-10 bg-blue-500 text-white rounded-xl hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-all shadow-sm hover:shadow shrink-0"
                 title="发送"
               >
                 <Send size={18} />
@@ -1086,7 +1827,7 @@ export default function ChatPage() {
           </div>
 
           {/* 底部胶囊按钮区域 */}
-          <div className="flex items-center gap-2 mt-3">
+          <div className="flex flex-wrap items-center gap-2 mt-3">
             {/* 知识库胶囊按钮 */}
             <button
               onClick={() => { setKnowledgeBases(getAllKnowledgeBases()); setShowKBModal(true); }}
@@ -1099,69 +1840,55 @@ export default function ChatPage() {
 
             {/* 快速写作按钮 */}
             <button
-              onClick={() => {
-                if (selectedMode.id === 'quick_writing') {
-                  setSelectedMode(writingModes[0]); // 退出时切换到普通对话
-                } else {
-                  setSelectedMode(writingModes[1]); // 进入快速写作模式
-                }
-                setShowTemplates(false);
-                setShowModeDropdown(false);
-              }}
+              onClick={() => switchMode('quick_writing')}
               className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-full transition-colors border ${
-                selectedMode.id === 'quick_writing'
+                getCurrentMode() === 'quick_writing'
                   ? 'bg-green-100 text-green-700 border-green-300'
                   : 'bg-green-50 text-green-600 border-green-200 hover:bg-green-100'
               }`}
             >
               <Pen size={14} />
-              <span>{selectedMode.id === 'quick_writing' ? '退出快速写作' : '快速写作'}</span>
+              <span>{getCurrentMode() === 'quick_writing' ? '退出快速写作' : '快速写作'}</span>
             </button>
 
             {/* 模板写作按钮 */}
             <button
-              onClick={() => {
-                if (templateMode) {
-                  exitTemplateMode();
-                } else {
-                  setShowTemplateManager(true);
-                }
-              }}
+              onClick={() => switchMode('template')}
               className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-full transition-colors border ${
-                templateMode
+                getCurrentMode() === 'template'
                   ? 'bg-cyan-100 text-cyan-700 border-cyan-300'
                   : 'bg-cyan-50 text-cyan-600 border-cyan-200 hover:bg-cyan-100'
               }`}
             >
               <Upload size={14} />
-              <span>{templateMode ? '退出模板写作' : '模板写作'}</span>
+              <span>{getCurrentMode() === 'template' ? '退出模板写作' : '模板写作'}</span>
             </button>
 
             {/* PPT工具按钮 */}
             <button
-              onClick={() => {
-                setPptMode(!pptMode);
-                if (!pptMode) {
-                  setMessages([]);
-                  setTemplateMode(false);
-                  setTemplateData(null);
-                }
-              }}
+              onClick={() => switchMode('ppt')}
               className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-full transition-colors border ${
-                pptMode
+                getCurrentMode() === 'ppt'
                   ? 'bg-orange-100 text-orange-700 border-orange-300'
                   : 'bg-orange-50 text-orange-600 border-orange-200 hover:bg-orange-100'
               }`}
             >
               <Presentation size={14} />
-              <span>{pptMode ? '退出PPT模式' : '制作PPT'}</span>
+              <span>{getCurrentMode() === 'ppt' ? '退出PPT模式' : '制作PPT'}</span>
             </button>
 
-            <div className="flex-1" />
-
-            <p className="text-xs text-gray-400">
-              {pptMode ? '🎨 PPT模式' : templateMode ? '📝 模板写作' : `模型: ${API_CONFIG.model}`}
-            </p>
+            {/* 报告生成按钮 */}
+            <button
+              onClick={() => switchMode('report')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-full transition-colors border ${
+                getCurrentMode() === 'report'
+                  ? 'bg-emerald-100 text-emerald-700 border-emerald-300'
+                  : 'bg-emerald-50 text-emerald-600 border-emerald-200 hover:bg-emerald-100'
+              }`}
+            >
+              <BookOpen size={14} />
+              <span>{getCurrentMode() === 'report' ? '退出报告模式' : '生成报告'}</span>
+            </button>
           </div>
         </div>
       </div>
@@ -1172,6 +1899,16 @@ export default function ChatPage() {
         type="file"
         accept=".txt,.md,.docx"
         onChange={handleTemplateFileUpload}
+        className="hidden"
+      />
+
+      {/* 报告来源文件上传 input */}
+      <input
+        ref={reportFileInputRef}
+        type="file"
+        accept=".txt,.md,.docx,.pdf,.pptx"
+        multiple
+        onChange={handleReportSourceUpload}
         className="hidden"
       />
 
@@ -1294,53 +2031,75 @@ export default function ChatPage() {
         </div>
       )}
 
-      {/* PPT预览弹窗 */}
+      {/* PPT预览弹窗 - 优化版 */}
       {showPPTModal && currentPPT && (
-        <div className={`fixed inset-0 bg-black flex flex-col z-50 ${isFullscreen ? '' : 'p-4 md:p-8'}`}>
+        <div className={`fixed inset-0 bg-gradient-to-br from-slate-800 via-slate-900 to-slate-800 flex flex-col z-50 ${isFullscreen ? '' : 'p-4 md:p-8'}`}>
+          {/* 背景装饰 */}
+          <div className="absolute inset-0 overflow-hidden pointer-events-none">
+            <div className="absolute top-0 left-1/4 w-96 h-96 bg-slate-600/10 rounded-full blur-3xl" />
+            <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-slate-500/10 rounded-full blur-3xl" />
+          </div>
+
           {/* 顶部控制栏 */}
-          <div className={`flex items-center justify-between px-4 py-3 bg-gray-900/80 backdrop-blur ${isFullscreen ? '' : 'rounded-t-xl'}`}>
-            <div className="flex items-center gap-3">
-              <Presentation size={20} className="text-white" />
-              <span className="text-white font-medium">{currentPPT.title}</span>
-              <span className="text-gray-400 text-sm">
-                {currentSlideIndex + 1} / {currentPPT.slides.length}
-              </span>
+          <div className={`relative flex items-center justify-between px-6 py-4 bg-white/5 backdrop-blur-xl border-b border-white/10 ${isFullscreen ? '' : 'rounded-t-2xl'}`}>
+            <div className="flex items-center gap-4">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-slate-500 to-slate-600 flex items-center justify-center shadow-lg shadow-slate-500/25">
+                <Presentation size={20} className="text-white" />
+              </div>
+              <div>
+                <h2 className="text-white font-semibold text-lg">{currentPPT.title}</h2>
+                <div className="flex items-center gap-3 mt-0.5">
+                  <span className="text-slate-400 text-sm">
+                    第 {currentSlideIndex + 1} 页，共 {currentPPT.slides.length} 页
+                  </span>
+                  <div className="flex gap-1">
+                    {currentPPT.slides.map((_, idx) => (
+                      <div
+                        key={idx}
+                        className={`h-1.5 rounded-full transition-all duration-300 ${
+                          idx === currentSlideIndex ? 'w-6 bg-slate-400' : 'w-1.5 bg-white/20'
+                        }`}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </div>
             </div>
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setIsFullscreen(!isFullscreen)}
-                className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+                className="p-2.5 text-white/70 hover:text-white hover:bg-white/10 rounded-xl transition-all"
                 title={isFullscreen ? '退出全屏' : '全屏'}
               >
-                {isFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+                {isFullscreen ? <Minimize2 size={20} /> : <Maximize2 size={20} />}
               </button>
               <button
                 onClick={() => {
                   setShowPPTModal(false);
                   setIsFullscreen(false);
                 }}
-                className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+                className="p-2.5 text-white/70 hover:text-white hover:bg-white/10 rounded-xl transition-all"
                 title="关闭"
               >
-                <X size={18} />
+                <X size={20} />
               </button>
             </div>
           </div>
 
           {/* PPT内容区 */}
-          <div className={`flex-1 flex items-center justify-center bg-gray-900 relative ${isFullscreen ? '' : 'rounded-b-xl overflow-hidden'}`}>
+          <div className={`relative flex-1 flex items-center justify-center ${isFullscreen ? '' : 'rounded-b-2xl overflow-hidden'}`}>
             {/* 左箭头 */}
             <button
               onClick={() => setCurrentSlideIndex(Math.max(0, currentSlideIndex - 1))}
               disabled={currentSlideIndex === 0}
-              className="absolute left-4 p-3 bg-white/10 hover:bg-white/20 disabled:opacity-30 disabled:cursor-not-allowed rounded-full transition-colors z-10"
+              className="absolute left-6 w-14 h-14 flex items-center justify-center bg-white/10 hover:bg-white/20 disabled:opacity-20 disabled:cursor-not-allowed rounded-2xl transition-all backdrop-blur-sm border border-white/10 z-10 group"
             >
-              <ChevronLeft size={24} className="text-white" />
+              <ChevronLeft size={28} className="text-white group-hover:scale-110 transition-transform" />
             </button>
 
             {/* 幻灯片 - 1920x1080 缩放到 960x540 显示 */}
             <div
-              className="mx-16 rounded-lg overflow-hidden shadow-2xl bg-gray-800 relative"
+              className="mx-20 rounded-2xl overflow-hidden shadow-2xl shadow-black/50 relative ring-1 ring-white/10"
               style={{ width: '960px', height: '540px' }}
             >
               <div
@@ -1362,37 +2121,45 @@ export default function ChatPage() {
             <button
               onClick={() => setCurrentSlideIndex(Math.min(currentPPT.slides.length - 1, currentSlideIndex + 1))}
               disabled={currentSlideIndex === currentPPT.slides.length - 1}
-              className="absolute right-4 p-3 bg-white/10 hover:bg-white/20 disabled:opacity-30 disabled:cursor-not-allowed rounded-full transition-colors z-10"
+              className="absolute right-6 w-14 h-14 flex items-center justify-center bg-white/10 hover:bg-white/20 disabled:opacity-20 disabled:cursor-not-allowed rounded-2xl transition-all backdrop-blur-sm border border-white/10 z-10 group"
             >
-              <ChevronRight size={24} className="text-white" />
+              <ChevronRight size={28} className="text-white group-hover:scale-110 transition-transform" />
             </button>
           </div>
 
           {/* 底部缩略图 */}
-          <div className={`flex items-center gap-2 px-4 py-3 bg-gray-900/80 backdrop-blur overflow-x-auto ${isFullscreen ? '' : 'rounded-b-xl'}`}>
+          <div className={`relative flex items-center gap-3 px-6 py-4 bg-white/5 backdrop-blur-xl border-t border-white/10 overflow-x-auto ${isFullscreen ? '' : 'rounded-b-2xl'}`}>
             {currentPPT.slides.map((slide, index) => (
               <button
                 key={index}
                 onClick={() => setCurrentSlideIndex(index)}
-                className={`flex-shrink-0 rounded border-2 overflow-hidden transition-all relative ${
+                className={`flex-shrink-0 rounded-xl overflow-hidden transition-all duration-300 relative group ${
                   index === currentSlideIndex
-                    ? 'border-blue-500 ring-2 ring-blue-500/50'
-                    : 'border-gray-600 hover:border-gray-400'
+                    ? 'ring-2 ring-slate-400 ring-offset-2 ring-offset-slate-900 scale-105'
+                    : 'ring-1 ring-white/20 hover:ring-white/40 hover:scale-102'
                 }`}
-                style={{ width: '128px', height: '72px' }}
+                style={{ width: '144px', height: '81px' }}
               >
                 <div
                   className="origin-top-left absolute top-0 left-0"
                   style={{
                     width: '1920px',
                     height: '1080px',
-                    transform: 'scale(0.0667)',
+                    transform: 'scale(0.075)',
                   }}
                 >
                   <div
                     style={{ width: '100%', height: '100%' }}
                     dangerouslySetInnerHTML={{ __html: slide }}
                   />
+                </div>
+                {/* 序号标签 */}
+                <div className={`absolute bottom-1 right-1 px-1.5 py-0.5 rounded text-xs font-medium transition-all ${
+                  index === currentSlideIndex
+                    ? 'bg-slate-500 text-white'
+                    : 'bg-black/50 text-white/70 group-hover:bg-black/70'
+                }`}>
+                  {index + 1}
                 </div>
               </button>
             ))}
@@ -1444,10 +2211,26 @@ export default function ChatPage() {
                             : 'border-gray-200 hover:border-cyan-300 hover:bg-gray-50'
                         }`}
                         onClick={() => {
+                          // 检查是否正在生成
+                          if (isStreaming) {
+                            if (!window.confirm('当前正在生成内容，确定要切换到模板写作模式吗？')) {
+                              return;
+                            }
+                            abortControllerRef.current?.abort();
+                          }
+                          // 重置其他模式
+                          setPptMode(false);
+                          setReportMode(false);
+                          setReportSourceFiles([]);
+                          setReportContent('');
+                          setShowReportViewer(false);
+                          setSelectedMode(writingModes[0]);
+                          // 进入模板模式
                           setTemplateData(tpl);
                           setTemplateMode(true);
-                          setPptMode(false);
                           setMessages([]);
+                          setInputText('');
+                          resetTextareaHeight();
                           setShowTemplateManager(false);
                         }}
                       >
@@ -1488,7 +2271,7 @@ export default function ChatPage() {
               <div className="px-5 py-3 border-t border-gray-100 bg-gray-50 flex justify-between items-center">
                 <button
                   onClick={() => {
-                    exitTemplateMode();
+                    switchMode('template'); // 退出模板模式
                     setShowTemplateManager(false);
                   }}
                   className="px-4 py-2 text-gray-600 hover:text-red-500 text-sm transition-colors"
@@ -1527,9 +2310,11 @@ export default function ChatPage() {
               </div>
             </div>
             <div className="p-5 overflow-y-auto max-h-[60vh]">
-              <pre className="whitespace-pre-wrap text-sm text-gray-700 font-sans leading-relaxed">
-                {templateData.content}
-              </pre>
+              <article className="prose prose-cyan prose-sm max-w-none prose-headings:text-gray-800 prose-hr:border-gray-200 prose-hr:my-4 prose-p:text-gray-700 prose-p:leading-relaxed">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {templateData.content}
+                </ReactMarkdown>
+              </article>
             </div>
             <div className="px-5 py-3 border-t border-gray-100 bg-gray-50 flex justify-end">
               <button
@@ -1634,6 +2419,21 @@ export default function ChatPage() {
                 </button>
               </div>
               <div className="flex-1" />
+              {/* 预览/编辑切换 */}
+              <div className="flex items-center gap-1 mr-2 bg-gray-100 rounded-lg p-0.5">
+                <button
+                  onClick={() => setDocumentPreviewMode(false)}
+                  className={`px-2 py-1 text-xs rounded-md transition-colors ${!documentPreviewMode ? 'bg-white text-cyan-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                >
+                  编辑
+                </button>
+                <button
+                  onClick={() => setDocumentPreviewMode(true)}
+                  className={`px-2 py-1 text-xs rounded-md transition-colors ${documentPreviewMode ? 'bg-white text-cyan-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                >
+                  预览
+                </button>
+              </div>
               <span className="text-xs text-gray-400">{documentContent.length} 字符</span>
             </div>
           </div>
@@ -1646,25 +2446,191 @@ export default function ChatPage() {
               minHeight: '842px', // A4 高度的缩放版
               padding: '48px 40px'
             }}>
-              <textarea
-                ref={documentEditorRef}
-                value={documentContent}
-                onChange={(e) => {
-                  setDocumentContent(e.target.value);
-                  // 自动调整高度
-                  e.target.style.height = 'auto';
-                  e.target.style.height = e.target.scrollHeight + 'px';
-                }}
-                className="w-full resize-none border-none outline-none text-gray-800 leading-relaxed overflow-hidden"
-                style={{
-                  fontFamily: 'SimSun, "宋体", serif',
-                  fontSize: '13px',
-                  lineHeight: '1.8',
-                  minHeight: '700px',
-                }}
-                placeholder="文档内容将显示在这里..."
-              />
+              {documentPreviewMode ? (
+                <article className="prose prose-cyan prose-sm max-w-none prose-headings:text-gray-800 prose-h1:text-xl prose-h1:font-bold prose-h1:border-b prose-h1:border-cyan-200 prose-h1:pb-2 prose-h1:mb-4 prose-h2:text-lg prose-h2:font-semibold prose-h2:text-cyan-800 prose-h2:mt-5 prose-h2:mb-2 prose-hr:border-cyan-200 prose-hr:my-4 prose-p:text-gray-700 prose-p:leading-relaxed prose-p:my-2 prose-strong:text-cyan-700 prose-ul:my-2 prose-li:my-0.5">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {documentContent || '文档内容将显示在这里...'}
+                  </ReactMarkdown>
+                </article>
+              ) : (
+                <textarea
+                  ref={documentEditorRef}
+                  value={documentContent}
+                  onChange={(e) => {
+                    setDocumentContent(e.target.value);
+                    // 自动调整高度
+                    e.target.style.height = 'auto';
+                    e.target.style.height = e.target.scrollHeight + 'px';
+                  }}
+                  className="w-full resize-none border-none outline-none text-gray-800 leading-relaxed overflow-hidden"
+                  style={{
+                    fontFamily: 'Menlo, Monaco, Consolas, monospace',
+                    fontSize: '13px',
+                    lineHeight: '1.8',
+                    minHeight: '700px',
+                  }}
+                  placeholder="在此编辑 Markdown 内容..."
+                />
+              )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 报告来源管理弹窗 */}
+      {showReportSourceManager && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowReportSourceManager(false)}>
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl mx-4 overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <h3 className="font-semibold text-gray-800 flex items-center gap-2">
+                <BookOpen size={18} className="text-emerald-600" />
+                来源材料管理
+                <span className="text-sm font-normal text-gray-400">({reportSourceFiles.length} 个文件)</span>
+              </h3>
+              <button
+                onClick={() => setShowReportSourceManager(false)}
+                className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-100 transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-4 max-h-96 overflow-y-auto">
+              {/* 上传更多 */}
+              <button
+                onClick={() => reportFileInputRef.current?.click()}
+                className="w-full border-2 border-dashed border-emerald-200 rounded-xl p-4 text-center cursor-pointer hover:border-emerald-400 hover:bg-emerald-50/50 transition-colors mb-4"
+              >
+                <FileUp size={24} className="mx-auto text-emerald-400 mb-2" />
+                <p className="text-sm font-medium text-gray-700">点击上传更多来源</p>
+                <p className="text-xs text-gray-400 mt-1">支持 .txt、.md、.docx、.pdf、.pptx 格式</p>
+              </button>
+
+              {/* 已上传文件列表 */}
+              {reportSourceFiles.length > 0 ? (
+                <div className="space-y-2">
+                  {reportSourceFiles.map((file, index) => (
+                    <div
+                      key={file.id}
+                      className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg hover:shadow-sm transition-shadow bg-white"
+                    >
+                      <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-600 text-xs font-medium flex items-center justify-center">
+                        {index + 1}
+                      </span>
+                      <FileText size={18} className="text-emerald-500 shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-gray-800 truncate">{file.fileName}</p>
+                        <p className="text-xs text-gray-400">
+                          {file.content.length} 字符 &middot; {new Date(file.uploadTime).toLocaleString()}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => handleDeleteReportSource(file.id)}
+                        className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                        title="删除"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-center text-sm text-gray-400 py-4">暂无来源文件</p>
+              )}
+            </div>
+            <div className="px-5 py-3 border-t border-gray-100 bg-gray-50 flex justify-between items-center">
+              <button
+                onClick={() => {
+                  setReportSourceFiles([]);
+                }}
+                className="px-4 py-2 text-gray-600 hover:text-red-500 text-sm transition-colors"
+                disabled={reportSourceFiles.length === 0}
+              >
+                清空全部
+              </button>
+              <button
+                onClick={() => setShowReportSourceManager(false)}
+                className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 transition-colors"
+              >
+                确定
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 报告查看器 - 右侧半屏展示 */}
+      {showReportViewer && (
+        <div className="w-1/2 flex flex-col bg-white rounded-lg shadow-sm overflow-hidden">
+          {/* 报告查看器顶部工具栏 */}
+          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center">
+                <BookOpen size={16} className="text-white" />
+              </div>
+              <div>
+                <span className="font-medium text-gray-800 text-sm">研究报告</span>
+                {isStreaming && (
+                  <span className="ml-2 text-xs text-emerald-600 flex items-center gap-1">
+                    <Loader2 size={10} className="animate-spin" />
+                    生成中...
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => {
+                  const blob = new Blob([reportContent], { type: 'text/plain;charset=utf-8' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `研究报告_${new Date().toLocaleDateString()}.txt`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }}
+                className="flex items-center gap-1 px-2 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                title="保存报告"
+              >
+                <Save size={14} />
+                <span>保存</span>
+              </button>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(reportContent);
+                  alert('已复制到剪贴板');
+                }}
+                className="flex items-center gap-1 px-2 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                title="复制全部内容"
+              >
+                <Copy size={14} />
+                <span>复制</span>
+              </button>
+              <div className="w-px h-5 bg-gray-200 mx-1" />
+              <button
+                onClick={() => setShowReportViewer(false)}
+                className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                title="关闭"
+              >
+                <X size={18} />
+              </button>
+            </div>
+          </div>
+
+          {/* 报告内容区 */}
+          <div className="flex-1 overflow-auto bg-gradient-to-b from-emerald-50/30 to-white p-6">
+            <div className="bg-white shadow-sm rounded-xl mx-auto max-w-3xl p-8 border border-gray-100">
+              <article className="prose prose-emerald prose-sm max-w-none prose-headings:text-gray-800 prose-h1:text-2xl prose-h1:font-bold prose-h1:border-b prose-h1:border-emerald-200 prose-h1:pb-3 prose-h1:mb-6 prose-h2:text-lg prose-h2:font-semibold prose-h2:text-emerald-800 prose-h2:mt-6 prose-h2:mb-3 prose-hr:border-emerald-200 prose-hr:my-6 prose-p:text-gray-700 prose-p:leading-relaxed prose-strong:text-emerald-700 prose-ul:my-2 prose-li:my-1">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {reportContent || '报告生成中...'}
+                </ReactMarkdown>
+              </article>
+            </div>
+          </div>
+
+          {/* 底部信息 */}
+          <div className="px-4 py-2 border-t border-gray-100 bg-gray-50 flex items-center justify-between">
+            <span className="text-xs text-gray-400">{reportContent.length} 字符</span>
+            <span className="text-xs text-gray-400">来源: {reportSourceFiles.length} 个文件</span>
           </div>
         </div>
       )}
