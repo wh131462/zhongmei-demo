@@ -19,6 +19,7 @@ import {
   saveWeeklyReports, loadWeeklyReports,
   saveMonthlyReports, loadMonthlyReports
 } from '../services/reportStorageService';
+import { appFetch } from '../utils/tauriFetch';
 import type { UploadedDailyFile, GeneratedWeeklyReport, GeneratedMonthlyReport, ReportTemplate } from '../types';
 
 type Tab = 'daily' | 'weekly' | 'monthly';
@@ -723,7 +724,7 @@ ${TEMPLATE_PROMPTS[template]}
       const controller = new AbortController();
       abortControllerRef.current = controller;
 
-      const response = await fetch(API_CONFIG.url, {
+      const response = await appFetch(API_CONFIG.url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1409,7 +1410,7 @@ function MonthlyTab({ files, result, setResult, weeklyHistory, history, setHisto
       const controller = new AbortController();
       abortControllerRef.current = controller;
 
-      const response = await fetch(API_CONFIG.url, {
+      const response = await appFetch(API_CONFIG.url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

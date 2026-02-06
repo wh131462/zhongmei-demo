@@ -3,6 +3,8 @@
  * Demo 专用知识库管理和语义检索
  */
 
+import { appFetch } from '../utils/tauriFetch';
+
 const RAGFLOW_CONFIG = {
   baseUrl: 'http://114.247.37.103:8084',
   apiKey: 'ragflow-U5YTJjMmVjNDVjMjExZjA5ZTFiMjJlM2',
@@ -223,7 +225,7 @@ ${context}
  * 创建知识库
  */
 export async function createDataset(name: string, description?: string): Promise<RAGFlowDataset> {
-  const response = await fetch(`${RAGFLOW_CONFIG.baseUrl}/api/v1/datasets`, {
+  const response = await appFetch(`${RAGFLOW_CONFIG.baseUrl}/api/v1/datasets`, {
     method: 'POST',
     headers: getHeaders(),
     body: JSON.stringify({ name, description }),
@@ -242,7 +244,7 @@ export async function createDataset(name: string, description?: string): Promise
  * 获取知识库详情
  */
 export async function getDatasetById(id: string): Promise<RAGFlowDataset | null> {
-  const response = await fetch(`${RAGFLOW_CONFIG.baseUrl}/api/v1/datasets?id=${id}`, {
+  const response = await appFetch(`${RAGFLOW_CONFIG.baseUrl}/api/v1/datasets?id=${id}`, {
     method: 'GET',
     headers: getHeaders(),
   });
@@ -260,7 +262,7 @@ export async function getDatasetById(id: string): Promise<RAGFlowDataset | null>
  * 获取知识库文档列表
  */
 export async function getDocuments(datasetId: string): Promise<RAGFlowDocument[]> {
-  const response = await fetch(`${RAGFLOW_CONFIG.baseUrl}/api/v1/datasets/${datasetId}/documents`, {
+  const response = await appFetch(`${RAGFLOW_CONFIG.baseUrl}/api/v1/datasets/${datasetId}/documents`, {
     method: 'GET',
     headers: getHeaders(),
   });
@@ -281,7 +283,7 @@ export async function uploadDocument(datasetId: string, file: File): Promise<RAG
   const formData = new FormData();
   formData.append('file', file);
 
-  const response = await fetch(`${RAGFLOW_CONFIG.baseUrl}/api/v1/datasets/${datasetId}/documents`, {
+  const response = await appFetch(`${RAGFLOW_CONFIG.baseUrl}/api/v1/datasets/${datasetId}/documents`, {
     method: 'POST',
     headers: getHeaders(true),
     body: formData,
@@ -300,7 +302,7 @@ export async function uploadDocument(datasetId: string, file: File): Promise<RAG
  * 触发文档解析
  */
 export async function parseDocuments(datasetId: string, documentIds: string[]): Promise<void> {
-  const response = await fetch(`${RAGFLOW_CONFIG.baseUrl}/api/v1/datasets/${datasetId}/chunks`, {
+  const response = await appFetch(`${RAGFLOW_CONFIG.baseUrl}/api/v1/datasets/${datasetId}/chunks`, {
     method: 'POST',
     headers: getHeaders(),
     body: JSON.stringify({ document_ids: documentIds }),
@@ -317,7 +319,7 @@ export async function parseDocuments(datasetId: string, documentIds: string[]): 
  * 删除文档
  */
 export async function deleteDocuments(datasetId: string, documentIds: string[]): Promise<void> {
-  const response = await fetch(`${RAGFLOW_CONFIG.baseUrl}/api/v1/datasets/${datasetId}/documents`, {
+  const response = await appFetch(`${RAGFLOW_CONFIG.baseUrl}/api/v1/datasets/${datasetId}/documents`, {
     method: 'DELETE',
     headers: getHeaders(),
     body: JSON.stringify({ ids: documentIds }),
@@ -334,7 +336,7 @@ export async function deleteDocuments(datasetId: string, documentIds: string[]):
  * 删除知识库
  */
 export async function deleteDataset(datasetId: string): Promise<void> {
-  const response = await fetch(`${RAGFLOW_CONFIG.baseUrl}/api/v1/datasets`, {
+  const response = await appFetch(`${RAGFLOW_CONFIG.baseUrl}/api/v1/datasets`, {
     method: 'DELETE',
     headers: getHeaders(),
     body: JSON.stringify({ ids: [datasetId] }),
@@ -355,7 +357,7 @@ export async function ragflowRetrieval(
   datasetIds: string[],
   topK: number = 5
 ): Promise<RAGFlowChunk[]> {
-  const response = await fetch(`${RAGFLOW_CONFIG.baseUrl}/api/v1/retrieval`, {
+  const response = await appFetch(`${RAGFLOW_CONFIG.baseUrl}/api/v1/retrieval`, {
     method: 'POST',
     headers: getHeaders(),
     body: JSON.stringify({
@@ -379,7 +381,7 @@ export async function ragflowRetrieval(
  */
 export async function checkRAGFlowHealth(): Promise<boolean> {
   try {
-    const response = await fetch(`${RAGFLOW_CONFIG.baseUrl}/api/v1/datasets`, {
+    const response = await appFetch(`${RAGFLOW_CONFIG.baseUrl}/api/v1/datasets`, {
       method: 'GET',
       headers: getHeaders(),
     });
@@ -393,7 +395,7 @@ export async function checkRAGFlowHealth(): Promise<boolean> {
 // ==================== 兼容旧 API ====================
 
 export async function getRAGFlowDatasets(): Promise<RAGFlowDataset[]> {
-  const response = await fetch(`${RAGFLOW_CONFIG.baseUrl}/api/v1/datasets`, {
+  const response = await appFetch(`${RAGFLOW_CONFIG.baseUrl}/api/v1/datasets`, {
     method: 'GET',
     headers: getHeaders(),
   });

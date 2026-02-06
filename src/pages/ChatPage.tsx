@@ -13,6 +13,7 @@ import { message, Modal } from 'antd';
 import { parseFile } from '../services/fileParserService';
 import { getAllKnowledgeBases, buildPromptWithRAG } from '../services/knowledgeBaseService';
 import { buildRAGFlowPrompt } from '../services/ragflowService';
+import { appFetch } from '../utils/tauriFetch';
 import type { KnowledgeBase } from '../types';
 
 /* ============================== 配置与数据 ============================== */
@@ -901,7 +902,7 @@ export default function ChatPage() {
         ...newMessages.map(m => ({ role: m.role, content: m.content })),
       ];
 
-      const response = await fetch(API_CONFIG.url, {
+      const response = await appFetch(API_CONFIG.url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1325,7 +1326,7 @@ export default function ChatPage() {
         ...newMessages.map(m => ({ role: m.role, content: m.content })),
       ];
 
-      const response = await fetch(API_CONFIG.url, {
+      const response = await appFetch(API_CONFIG.url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
