@@ -4,6 +4,7 @@ import {
   FileText, Search, FolderOpen, File, Layers, Clock,
   HardDrive, ChevronRight, AlertCircle, Loader2
 } from 'lucide-react';
+import { message } from 'antd';
 import type { KnowledgeBase, KBDocument } from '../types';
 import {
   getAllKnowledgeBases,
@@ -76,7 +77,7 @@ export default function KnowledgeBasePage() {
 
   const handleSave = () => {
     if (!formData.name.trim()) {
-      alert('请输入知识库名称');
+      message.warning('请输入知识库名称');
       return;
     }
 
@@ -127,14 +128,14 @@ export default function KnowledgeBasePage() {
         const result = await mammoth.extractRawText({ arrayBuffer });
         content = result.value;
       } else {
-        alert('不支持的文件格式，请上传 .txt、.md 或 .docx 文件');
+        message.warning('不支持的文件格式，请上传 .txt、.md 或 .docx 文件');
         setUploadingDoc(false);
         setProcessingStatus('');
         return;
       }
 
       if (!content.trim()) {
-        alert('文件内容为空');
+        message.warning('文件内容为空');
         setUploadingDoc(false);
         setProcessingStatus('');
         return;
@@ -154,7 +155,7 @@ export default function KnowledgeBasePage() {
       loadKnowledgeBases();
     } catch (error) {
       console.error('文件处理错误:', error);
-      alert('文件处理失败');
+      message.error('文件处理失败');
     } finally {
       setUploadingDoc(false);
       setProcessingStatus('');

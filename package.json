@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@tailwindcss/typography": "^0.5.19",
+    "antd": "^6.2.3",
     "jszip": "^3.10.1",
     "lucide-react": "^0.563.0",
     "mammoth": "^1.11.0",

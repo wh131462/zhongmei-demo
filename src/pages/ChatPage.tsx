@@ -2,13 +2,14 @@ import { useState, useRef, useEffect } from 'react';
 import {
   Send, Bot, User, Database, Pen, FileText, Trash2,
   ChevronDown, Loader2, Square, RotateCcw, Copy, Check, X,
-  Presentation, ChevronLeft, ChevronRight, Maximize2, Minimize2,
+  Presentation, ChevronLeft, ChevronRight, Maximize2,
   Upload, Download, Eye, FileEdit, Save, Printer,
   AlignLeft, AlignCenter, AlignRight, Bold, Italic, Underline, Type,
   FileUp, Sparkles, BookOpen
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { message, Modal } from 'antd';
 import { parseFile } from '../services/fileParserService';
 import type { KnowledgeBase } from '../types';
 import { getAllKnowledgeBases, buildPromptWithRAG } from '../services/knowledgeBaseService';
@@ -115,21 +116,42 @@ const promptTemplates: PromptTemplate[] = [
 
 /* ============================== PPT工具配置 ============================== */
 
-const PPT_SYSTEM_PROMPT = `你是一个顶级的PPT设计师。用户会给你一个主题，你需要生成一个视觉冲击力强、设计感十足的HTML格式PPT。
+const PPT_SYSTEM_PROMPT = `你是一个专业的PPT设计师。用户会给你一个主题，你需要根据主题性质选择合适的设计风格，生成专业的HTML格式PPT。
+
+## 风格选择原则（最重要）
+
+**首先判断主题类型，选择匹配的设计风格：**
+
+| 主题类型 | 设计风格 | 配色 | 装饰程度 |
+|---------|---------|------|---------|
+| 商务报告、工作汇报 | 简洁专业 | 深蓝/灰白/藏青 | 少量几何装饰 |
+| 教育培训、知识分享 | 清晰易读 | 蓝绿/浅色系 | 适度图标辅助 |
+| 产品发布、营销推广 | 现代活力 | 品牌色/渐变 | 丰富视觉元素 |
+| 技术方案、架构设计 | 简约精准 | 冷色调/白底 | 最少装饰，重内容 |
+| 年度总结、成果展示 | 大气稳重 | 金色点缀/深色底 | 数据可视化为主 |
+| 创意提案、品牌策划 | 设计感强 | 大胆配色/渐变 | 可以丰富 |
+
+**核心原则：风格服务于内容，而非喧宾夺主。**
+
+## 关键技术要求（必须严格遵守）
+
+1. **CSS渐变语法必须完整**：写 \`linear-gradient(135deg, ...)\`，不能漏写成 \`linear135deg\` 或其他错误形式
+2. **所有CSS函数必须包含完整的函数名和括号**：linear-gradient()、radial-gradient()、rgba()、translate()、blur() 等
+3. **HTML标签必须正确闭合**：每个 \`<div>\` 都有对应 \`</div>\`，每个 \`<svg>\` 都有对应 \`</svg>\`
+4. **在输出每页PPT前，先在脑中检查CSS语法正确性**
 
 重要：PPT基于1920x1080分辨率(16:9)设计，所有尺寸按此标准。
 
 请严格按照以下格式输出PPT内容，每一页用 ===SLIDE=== 分隔：
 
 ===SLIDE===
-<div style="width: 1920px; height: 1080px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); position: relative; overflow: hidden; padding: 80px; box-sizing: border-box;">
-  <!-- 装饰元素 -->
-  <div style="position: absolute; top: -100px; right: -100px; width: 400px; height: 400px; background: rgba(255,255,255,0.1); border-radius: 50%;"></div>
-  <div style="position: absolute; bottom: -50px; left: -50px; width: 300px; height: 300px; background: rgba(255,255,255,0.05); border-radius: 50%;"></div>
+<div style="width: 1920px; height: 1080px; background: linear-gradient(135deg, #1e3a5f 0%, #2c5282 100%); position: relative; overflow: hidden; padding: 80px; box-sizing: border-box;">
+  <!-- 简洁装饰（可选） -->
+  <div style="position: absolute; bottom: 80px; left: 80px; width: 120px; height: 3px; background: rgba(255,255,255,0.2);"></div>
   <!-- 内容区域 -->
   <div style="position: relative; z-index: 1; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center;">
-    <h1 style="color: white; font-size: 88px; text-align: center; margin-bottom: 30px; font-weight: 800; letter-spacing: -2px; text-shadow: 0 4px 30px rgba(0,0,0,0.3);">标题</h1>
-    <p style="color: rgba(255,255,255,0.9); font-size: 36px; text-align: center; font-weight: 300;">副标题或描述</p>
+    <h1 style="color: white; font-size: 80px; text-align: center; margin-bottom: 24px; font-weight: 700; letter-spacing: -1px;">标题</h1>
+    <p style="color: rgba(255,255,255,0.85); font-size: 32px; text-align: center; font-weight: 400;">副标题或描述</p>
   </div>
 </div>
 ===SLIDE===
@@ -147,12 +169,19 @@ const PPT_SYSTEM_PROMPT = `你是一个顶级的PPT设计师。用户会给你�
 **对比页** - 左右两栏对比
 **总结页** - 核心要点 + 行动号召
 
-### 2. 装饰元素（每页必须添加1-3个）
+### 2. 装饰元素（根据主题适度使用）
 
+**使用原则**：
+- 商务/技术类：少用或不用装饰，保持简洁
+- 教育/培训类：可用简单几何元素辅助
+- 营销/创意类：可适当丰富
+
+**可选装饰**（不是必须）：
 - 半透明圆形: \`<div style="position: absolute; top: -100px; right: -100px; width: 400px; height: 400px; background: rgba(255,255,255,0.1); border-radius: 50%;"></div>\`
-- 渐变圆环: \`<div style="position: absolute; bottom: 100px; left: 100px; width: 200px; height: 200px; border: 3px solid rgba(255,255,255,0.2); border-radius: 50%;"></div>\`
-- 装饰线条: \`<div style="position: absolute; top: 50%; left: 0; width: 100px; height: 4px; background: rgba(255,255,255,0.3);"></div>\`
-- 光晕效果: \`<div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 600px; height: 600px; background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);"></div>\`
+- 简洁线条: \`<div style="position: absolute; bottom: 80px; left: 80px; width: 120px; height: 3px; background: rgba(255,255,255,0.2);"></div>\`
+- 角落点缀: \`<div style="position: absolute; top: 60px; right: 60px; width: 8px; height: 8px; background: rgba(255,255,255,0.4); border-radius: 50%;"></div>\`
+
+**避免**：过多圆形堆叠、大面积光晕、与内容抢夺注意力的装饰
 
 ### 3. 卡片组件示例（使用SVG图标）
 
@@ -177,15 +206,28 @@ const PPT_SYSTEM_PROMPT = `你是一个顶级的PPT设计师。用户会给你�
 </div>
 \`\`\`
 
-### 5. 精选配色方案
+### 5. 配色方案（按主题类型选择）
 
-**科技蓝紫**: \`linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)\` 配合 cyan/blue 强调色
-**商务深蓝**: \`linear-gradient(135deg, #0c1445 0%, #1a237e 100%)\` 配合金色强调
-**活力橙红**: \`linear-gradient(135deg, #ff416c 0%, #ff4b2b 100%)\` 配合白色内容
-**自然绿色**: \`linear-gradient(135deg, #134e5e 0%, #71b280 100%)\` 清新专业
-**优雅紫色**: \`linear-gradient(135deg, #2c003e 0%, #512da8 100%)\` 高端大气
-**暖色渐变**: \`linear-gradient(135deg, #f093fb 0%, #f5576c 100%)\` 年轻活力
-**极简白底**: \`#f8fafc\` 配合深色文字和彩色强调
+**商务/专业场景（首选）**：
+- 经典深蓝: \`linear-gradient(135deg, #1e3a5f 0%, #2c5282 100%)\` - 稳重可信
+- 商务灰: \`linear-gradient(135deg, #2d3748 0%, #4a5568 100%)\` - 低调专业
+- 极简白底: \`#f8fafc\` 或 \`#ffffff\` 配合深色文字 - 清晰易读
+
+**教育/培训场景**：
+- 学术蓝: \`linear-gradient(135deg, #3182ce 0%, #2b6cb0 100%)\` - 清晰专注
+- 自然绿: \`linear-gradient(135deg, #276749 0%, #48bb78 100%)\` - 清新舒适
+- 浅色底: \`#f0f4f8\` 配合深色文字 - 减少视觉疲劳
+
+**产品/营销场景**：
+- 活力橙: \`linear-gradient(135deg, #ed8936 0%, #dd6b20 100%)\` - 吸引注意
+- 科技紫: \`linear-gradient(135deg, #667eea 0%, #764ba2 100%)\` - 创新现代
+- 品牌红: \`linear-gradient(135deg, #e53e3e 0%, #c53030 100%)\` - 热情有力
+
+**技术/方案场景**：
+- 代码深色: \`linear-gradient(135deg, #1a202c 0%, #2d3748 100%)\` - 技术感
+- 简约白: \`#ffffff\` 配合蓝色强调 - 聚焦内容
+
+**选择原则：宁可保守，不要花哨。不确定时选深蓝或白底。**
 
 ### 6. 字体规范
 
@@ -217,7 +259,27 @@ SVG基础格式：\`<svg width="32" height="32" viewBox="0 0 24 24" fill="none" 
 
 你可以根据PPT主题自由创建语义相关的简洁SVG图标，使用基本形状（circle、rect、path、polyline、polygon、line）组合。
 
-### 8. 必须遵守
+### 8. CSS语法规范（严格遵守）
+
+**渐变写法必须完整**：
+- 正确：\`background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);\`
+- 错误：\`background: linear135deg, #667eea 0%, #764ba2 100%);\` ❌ 缺少-gradient(
+- 错误：\`background: linear-gradient135deg, ...);\` ❌ 格式混乱
+
+**特殊字符必须转义**（在HTML属性中）：
+- 大于号用 \`&gt;\`
+- 小于号用 \`&lt;\`
+- 引号用 \`&quot;\`
+- &符号用 \`&amp;\`
+
+**CSS函数完整性检查清单**：
+- linear-gradient() - 必须有完整的函数名和括号
+- radial-gradient() - 同上
+- rgba() - 颜色函数括号完整
+- translate() / scale() / rotate() - transform函数括号完整
+- blur() - filter函数括号完整
+
+### 9. 必须遵守
 
 1. **内容完整性最重要**：每页PPT的HTML必须是完整闭合的，确保所有div、svg等标签正确闭合
 2. 每页必须有装饰元素，避免空洞
@@ -230,6 +292,7 @@ SVG基础格式：\`<svg width="32" height="32" viewBox="0 0 24 24" fill="none" 
 9. 不同页面使用不同布局，保持视觉新鲜感
 10. **禁止使用emoji**，图标使用SVG（可参考示例或自行创建）
 11. **确保每页HTML结构完整**，不要在生成过程中截断
+12. **生成前检查所有CSS函数语法是否完整**，特别是gradient、rgba、transform等
 
 直接输出PPT内容，不要有任何解释文字。确保每一页都是完整的HTML结构。`;
 
@@ -490,6 +553,21 @@ const parseReportContent = (content: string): ReportData | null => {
 
 /* ============================== 主组件 ============================== */
 
+// 封装 confirm 为 Promise
+const showConfirm = (content: string, title = '确认'): Promise<boolean> => {
+  return new Promise((resolve) => {
+    Modal.confirm({
+      title,
+      content,
+      okText: '确定',
+      cancelText: '取消',
+      centered: true,
+      onOk: () => resolve(true),
+      onCancel: () => resolve(false),
+    });
+  });
+};
+
 export default function ChatPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
@@ -506,7 +584,23 @@ export default function ChatPage() {
   const [showPPTModal, setShowPPTModal] = useState(false);
   const [currentPPT, setCurrentPPT] = useState<PPTData | null>(null);
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
-  const [isFullscreen, setIsFullscreen] = useState(false);
+  // PPT 弹窗键盘事件
+  useEffect(() => {
+    if (!showPPTModal || !currentPPT) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowLeft') {
+        setCurrentSlideIndex(prev => Math.max(0, prev - 1));
+      } else if (e.key === 'ArrowRight') {
+        setCurrentSlideIndex(prev => Math.min(currentPPT.slides.length - 1, prev + 1));
+      } else if (e.key === 'Escape') {
+        setShowPPTModal(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showPPTModal, currentPPT]);
   // 模板写作模式状态
   const [templateMode, setTemplateMode] = useState(false);
   const [templateData, setTemplateData] = useState<TemplateData | null>(null);
@@ -527,18 +621,93 @@ export default function ChatPage() {
   const reportFileInputRef = useRef<HTMLInputElement>(null);
   const documentEditorRef = useRef<HTMLTextAreaElement>(null);
   const documentEditorContainerRef = useRef<HTMLDivElement>(null);
-  const userScrollPausedRef = useRef(false); // 用户手动滚动时暂停自动滚动
-  const scrollResumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastScrollTopRef = useRef(0); // 记录上次滚动位置
+  // 智能滚动状态 - 消息列表
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const messagesScrollPausedRef = useRef(false);
+  const messagesScrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const messagesLastScrollTopRef = useRef(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // 智能滚动状态 - 文档编辑器
+  const userScrollPausedRef = useRef(false);
+  const scrollResumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastScrollTopRef = useRef(0);
+
+  // 智能滚动状态 - 报告页面
+  const reportContainerRef = useRef<HTMLDivElement>(null);
+  const reportScrollPausedRef = useRef(false);
+  const reportScrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reportLastScrollTopRef = useRef(0);
   const abortControllerRef = useRef<AbortController | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const modeDropdownRef = useRef<HTMLDivElement>(null);
   const templateFileInputRef = useRef<HTMLInputElement>(null);
 
+  // 消息列表智能滚动
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (!messagesScrollPausedRef.current && messagesContainerRef.current) {
+      const container = messagesContainerRef.current;
+      container.scrollTop = container.scrollHeight;
+      messagesLastScrollTopRef.current = container.scrollTop;
+    }
   }, [messages]);
+
+  // 消息列表滚动事件处理
+  const handleMessagesScroll = () => {
+    if (!messagesContainerRef.current) return;
+    const container = messagesContainerRef.current;
+    const currentScrollTop = container.scrollTop;
+    const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 50;
+
+    // 用户向上滚动时暂停自动滚动
+    if (currentScrollTop < messagesLastScrollTopRef.current - 10 && !isAtBottom) {
+      messagesScrollPausedRef.current = true;
+      if (messagesScrollTimerRef.current) {
+        clearTimeout(messagesScrollTimerRef.current);
+      }
+      // 3秒后恢复自动滚动
+      messagesScrollTimerRef.current = setTimeout(() => {
+        messagesScrollPausedRef.current = false;
+        messagesScrollTimerRef.current = null;
+      }, 3000);
+    }
+    // 用户滚动到底部时立即恢复自动滚动
+    if (isAtBottom) {
+      messagesScrollPausedRef.current = false;
+      if (messagesScrollTimerRef.current) {
+        clearTimeout(messagesScrollTimerRef.current);
+        messagesScrollTimerRef.current = null;
+      }
+    }
+    messagesLastScrollTopRef.current = currentScrollTop;
+  };
+
+  // 报告页面滚动事件处理
+  const handleReportScroll = () => {
+    if (!reportContainerRef.current) return;
+    const container = reportContainerRef.current;
+    const currentScrollTop = container.scrollTop;
+    const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 50;
+
+    if (currentScrollTop < reportLastScrollTopRef.current - 10 && !isAtBottom) {
+      reportScrollPausedRef.current = true;
+      if (reportScrollTimerRef.current) {
+        clearTimeout(reportScrollTimerRef.current);
+      }
+      reportScrollTimerRef.current = setTimeout(() => {
+        reportScrollPausedRef.current = false;
+        reportScrollTimerRef.current = null;
+      }, 3000);
+    }
+    if (isAtBottom) {
+      reportScrollPausedRef.current = false;
+      if (reportScrollTimerRef.current) {
+        clearTimeout(reportScrollTimerRef.current);
+        reportScrollTimerRef.current = null;
+      }
+    }
+    reportLastScrollTopRef.current = currentScrollTop;
+  };
 
   // 文档内容变化时自动调整 textarea 高度 + 自动滚动
   useEffect(() => {
@@ -575,16 +744,38 @@ export default function ChatPage() {
     lastScrollTopRef.current = currentScrollTop;
   };
 
-  // 流式结束时重置滚动暂停状态
+  // 流式结束时重置所有滚动暂停状态
   useEffect(() => {
     if (!isStreaming) {
+      // 重置文档编辑器滚动状态
       userScrollPausedRef.current = false;
       if (scrollResumeTimerRef.current) {
         clearTimeout(scrollResumeTimerRef.current);
         scrollResumeTimerRef.current = null;
       }
+      // 重置消息列表滚动状态
+      messagesScrollPausedRef.current = false;
+      if (messagesScrollTimerRef.current) {
+        clearTimeout(messagesScrollTimerRef.current);
+        messagesScrollTimerRef.current = null;
+      }
+      // 重置报告页面滚动状态
+      reportScrollPausedRef.current = false;
+      if (reportScrollTimerRef.current) {
+        clearTimeout(reportScrollTimerRef.current);
+        reportScrollTimerRef.current = null;
+      }
     }
   }, [isStreaming]);
+
+  // 报告内容变化时自动滚动
+  useEffect(() => {
+    if (isStreaming && reportContainerRef.current && !reportScrollPausedRef.current) {
+      const container = reportContainerRef.current;
+      container.scrollTop = container.scrollHeight;
+      reportLastScrollTopRef.current = container.scrollTop;
+    }
+  }, [reportContent, isStreaming]);
 
   // 点击外部关闭下拉框
   useEffect(() => {
@@ -686,7 +877,7 @@ export default function ChatPage() {
           messages: apiMessages,
           stream: true,
           temperature: 0.7,
-          max_tokens: pptMode ? 8192 : templateMode ? 4096 : 2048,
+          max_tokens: pptMode ? 16384 : templateMode ? 4096 : 2048,
         }),
         signal: controller.signal,
       });
@@ -816,7 +1007,8 @@ export default function ChatPage() {
 
     // 检查是否正在生成
     if (isStreaming) {
-      if (!window.confirm('当前正在生成内容，确定要切换到模板写作模式吗？')) {
+      const confirmed = await showConfirm('当前正在生成内容，确定要切换到模板写作模式吗？');
+      if (!confirmed) {
         e.target.value = '';
         return;
       }
@@ -837,7 +1029,7 @@ export default function ChatPage() {
         const result = await mammoth.extractRawText({ arrayBuffer });
         content = result.value;
       } else {
-        alert('不支持的文件格式，请上传 .txt、.md 或 .docx 文件');
+        message.warning('不支持的文件格式，请上传 .txt、.md 或 .docx 文件');
         return;
       }
 
@@ -865,11 +1057,11 @@ export default function ChatPage() {
         resetTextareaHeight();
         setShowTemplateManager(false); // 关闭弹窗
       } else {
-        alert('文件内容为空');
+        message.warning('文件内容为空');
       }
     } catch (error) {
       console.error('文件读取失败:', error);
-      alert('文件读取失败，请重试');
+      message.error('文件读取失败，请重试');
     }
 
     // 清空 input 以便再次选择同一文件
@@ -880,7 +1072,7 @@ export default function ChatPage() {
   const handleExportContent = () => {
     const lastAssistantMsg = [...messages].reverse().find(m => m.role === 'assistant');
     if (!lastAssistantMsg?.content) {
-      alert('没有可导出的内容');
+      message.warning('没有可导出的内容');
       return;
     }
 
@@ -914,11 +1106,11 @@ export default function ChatPage() {
           if (result.success) {
             content = result.content;
           } else {
-            alert(`文件 "${fileName}" 解析失败: ${result.error}`);
+            message.error(`文件 "${fileName}" 解析失败: ${result.error}`);
             continue;
           }
         } else {
-          alert(`不支持的文件格式: ${fileName}`);
+          message.warning(`不支持的文件格式: ${fileName}`);
           continue;
         }
 
@@ -932,7 +1124,7 @@ export default function ChatPage() {
         }
       } catch (error) {
         console.error(`文件 "${fileName}" 读取失败:`, error);
-        alert(`文件 "${fileName}" 读取失败`);
+        message.error(`文件 "${fileName}" 读取失败`);
       }
     }
 
@@ -973,13 +1165,14 @@ export default function ChatPage() {
   };
 
   // 统一的模式切换函数
-  const switchMode = (targetMode: AppMode, skipConfirm = false): boolean => {
+  const switchMode = async (targetMode: AppMode, skipConfirm = false): Promise<boolean> => {
     const currentMode = getCurrentMode();
 
     // 如果目标模式与当前模式相同，执行退出操作
     if (targetMode === currentMode) {
       if (isStreaming && !skipConfirm) {
-        if (!window.confirm('当前正在生成内容，确定要退出当前模式吗？')) {
+        const confirmed = await showConfirm('当前正在生成内容，确定要退出当前模式吗？');
+        if (!confirmed) {
           return false;
         }
         // 停止当前生成
@@ -992,7 +1185,8 @@ export default function ChatPage() {
 
     // 切换到新模式前检查是否正在生成
     if (isStreaming && !skipConfirm) {
-      if (!window.confirm(`当前正在生成内容，确定要切换到${getModeDisplayName(targetMode)}模式吗？`)) {
+      const confirmed = await showConfirm(`当前正在生成内容，确定要切换到${getModeDisplayName(targetMode)}模式吗？`);
+      if (!confirmed) {
         return false;
       }
       // 停止当前生成
@@ -1056,7 +1250,7 @@ export default function ChatPage() {
   // 报告生成处理（允许空输入）
   const handleGenerateReport = async () => {
     if (reportSourceFiles.length === 0) {
-      alert('请先上传来源材料');
+      message.warning('请先上传来源材料');
       return;
     }
     if (isStreaming) return;
@@ -1209,7 +1403,7 @@ export default function ChatPage() {
         </div>
 
         {/* 消息列表 */}
-        <div className="flex-1 overflow-y-auto px-3 sm:px-4 py-3 sm:py-4 space-y-3 sm:space-y-4">
+        <div ref={messagesContainerRef} onScroll={handleMessagesScroll} className="flex-1 overflow-y-auto px-3 sm:px-4 py-3 sm:py-4 space-y-3 sm:space-y-4">
           {messages.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full text-gray-400">
               {pptMode ? (
@@ -1325,12 +1519,12 @@ export default function ChatPage() {
                       if (pptData && pptData.slides.length > 0) {
                         return (
                           <div className="space-y-3">
-                            {/* PPT 预览卡片 - 现代渐变设计 */}
+                            {/* PPT 预览卡片 - 浅橙色风格 */}
                             <div
-                              className={`relative overflow-hidden rounded-2xl ${isStreaming ? 'cursor-wait' : 'cursor-pointer group'}`}
+                              className={`relative overflow-hidden rounded-2xl border border-orange-200 ${isStreaming ? 'cursor-wait' : 'cursor-pointer group'}`}
                               style={{
                                 width: '520px',
-                                background: 'linear-gradient(135deg, #334155 0%, #475569 50%, #64748b 100%)',
+                                background: 'linear-gradient(135deg, #fff7ed 0%, #ffedd5 50%, #fed7aa 100%)',
                               }}
                               onClick={() => {
                                 if (isStreaming) return;
@@ -1341,26 +1535,25 @@ export default function ChatPage() {
                             >
                               {/* 装饰性背景元素 */}
                               <div className="absolute inset-0 overflow-hidden">
-                                <div className="absolute -top-10 -right-10 w-40 h-40 bg-slate-400/20 rounded-full blur-3xl" />
-                                <div className="absolute -bottom-10 -left-10 w-32 h-32 bg-slate-500/20 rounded-full blur-3xl" />
-                                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-slate-400/10 rounded-full blur-3xl" />
+                                <div className="absolute -top-10 -right-10 w-40 h-40 bg-orange-300/20 rounded-full blur-3xl" />
+                                <div className="absolute -bottom-10 -left-10 w-32 h-32 bg-orange-200/30 rounded-full blur-3xl" />
                               </div>
 
                               {/* 顶部标题区域 */}
                               <div className="relative px-5 pt-4 pb-3">
                                 <div className="flex items-center justify-between">
                                   <div className="flex items-center gap-3">
-                                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${isStreaming ? 'bg-slate-400/30 animate-pulse' : 'bg-white/10 backdrop-blur-sm group-hover:bg-white/20'} transition-all`}>
-                                      <Presentation size={20} className="text-white" />
+                                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${isStreaming ? 'bg-orange-300/50 animate-pulse' : 'bg-orange-100 group-hover:bg-orange-200'} transition-all border border-orange-200`}>
+                                      <Presentation size={20} className="text-orange-600" />
                                     </div>
                                     <div>
-                                      <h4 className="text-white font-semibold text-sm truncate max-w-[280px]">
+                                      <h4 className="text-orange-800 font-semibold text-sm truncate max-w-[280px]">
                                         {pptData.title}
                                       </h4>
                                       <div className="flex items-center gap-2 mt-0.5">
-                                        <span className="text-slate-300/80 text-xs">{pptData.slides.length} 页幻灯片</span>
+                                        <span className="text-orange-600/80 text-xs">{pptData.slides.length} 页幻灯片</span>
                                         {isStreaming && (
-                                          <span className="flex items-center gap-1 text-xs text-slate-300 bg-slate-500/30 px-2 py-0.5 rounded-full">
+                                          <span className="flex items-center gap-1 text-xs text-orange-700 bg-orange-200/60 px-2 py-0.5 rounded-full">
                                             <Loader2 size={10} className="animate-spin" />
                                             生成中
                                           </span>
@@ -1369,7 +1562,7 @@ export default function ChatPage() {
                                     </div>
                                   </div>
                                   {!isStreaming && (
-                                    <div className="flex items-center gap-1.5 text-white/70 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <div className="flex items-center gap-1.5 text-orange-500 opacity-0 group-hover:opacity-100 transition-opacity">
                                       <Eye size={14} />
                                       <span className="text-xs">预览</span>
                                     </div>
@@ -1380,7 +1573,7 @@ export default function ChatPage() {
                               {/* PPT 预览区域 */}
                               <div className="relative px-5 pb-4">
                                 <div
-                                  className="relative rounded-xl overflow-hidden shadow-2xl ring-1 ring-white/10"
+                                  className="relative rounded-xl overflow-hidden shadow-lg ring-1 ring-orange-200"
                                   style={{ width: '480px', height: '270px' }}
                                 >
                                   <div
@@ -1398,22 +1591,22 @@ export default function ChatPage() {
                                   </div>
                                   {/* 悬浮遮罩 */}
                                   {!isStreaming && (
-                                    <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-center pb-4">
-                                      <div className="flex items-center gap-2 bg-white/95 backdrop-blur-sm px-4 py-2 rounded-full shadow-lg transform translate-y-2 group-hover:translate-y-0 transition-transform">
-                                        <Maximize2 size={14} className="text-gray-700" />
-                                        <span className="text-sm font-medium text-gray-700">点击查看完整PPT</span>
+                                    <div className="absolute inset-0 bg-gradient-to-t from-orange-900/30 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end justify-center pb-4">
+                                      <div className="flex items-center gap-2 bg-white/95 backdrop-blur-sm px-4 py-2 rounded-full shadow-lg transform translate-y-2 group-hover:translate-y-0 transition-transform border border-orange-200">
+                                        <Maximize2 size={14} className="text-orange-600" />
+                                        <span className="text-sm font-medium text-orange-700">点击查看完整PPT</span>
                                       </div>
                                     </div>
                                   )}
                                   {/* 生成中遮罩 */}
                                   {isStreaming && (
-                                    <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px] flex flex-col items-center justify-center">
+                                    <div className="absolute inset-0 bg-black/50 backdrop-blur-[2px] flex flex-col items-center justify-center">
                                       <div className="relative">
-                                        <div className="w-12 h-12 border-4 border-slate-300/30 rounded-full" />
-                                        <div className="absolute inset-0 w-12 h-12 border-4 border-transparent border-t-slate-300 rounded-full animate-spin" />
+                                        <div className="w-12 h-12 border-4 border-white/30 rounded-full" />
+                                        <div className="absolute inset-0 w-12 h-12 border-4 border-transparent border-t-white rounded-full animate-spin" />
                                       </div>
-                                      <span className="text-white text-sm mt-3 font-medium">正在生成精美PPT...</span>
-                                      <span className="text-slate-300/70 text-xs mt-1">已完成 {pptData.slides.length} 页</span>
+                                      <span className="text-white text-sm mt-3 font-medium">正在生成PPT...</span>
+                                      <span className="text-white/70 text-xs mt-1">已完成 {pptData.slides.length} 页</span>
                                     </div>
                                   )}
                                 </div>
@@ -1425,11 +1618,11 @@ export default function ChatPage() {
                                   {pptData.slides.slice(0, Math.min(7, pptData.slides.length)).map((_, idx) => (
                                     <div
                                       key={idx}
-                                      className={`h-1.5 rounded-full transition-all ${idx === 0 ? 'w-4 bg-white' : 'w-1.5 bg-white/40'}`}
+                                      className={`h-1.5 rounded-full transition-all ${idx === 0 ? 'w-4 bg-orange-500' : 'w-1.5 bg-orange-300/60'}`}
                                     />
                                   ))}
                                   {pptData.slides.length > 7 && (
-                                    <span className="text-white/50 text-xs ml-1">+{pptData.slides.length - 7}</span>
+                                    <span className="text-orange-500/70 text-xs ml-1">+{pptData.slides.length - 7}</span>
                                   )}
                                 </div>
                               )}
@@ -2031,25 +2224,25 @@ export default function ChatPage() {
         </div>
       )}
 
-      {/* PPT预览弹窗 - 优化版 */}
+      {/* PPT预览弹窗 - 全屏浅橙色风格 */}
       {showPPTModal && currentPPT && (
-        <div className={`fixed inset-0 bg-gradient-to-br from-slate-800 via-slate-900 to-slate-800 flex flex-col z-50 ${isFullscreen ? '' : 'p-4 md:p-8'}`}>
+        <div className="fixed inset-0 bg-gradient-to-br from-orange-50 via-orange-100 to-amber-50 flex flex-col z-50">
           {/* 背景装饰 */}
           <div className="absolute inset-0 overflow-hidden pointer-events-none">
-            <div className="absolute top-0 left-1/4 w-96 h-96 bg-slate-600/10 rounded-full blur-3xl" />
-            <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-slate-500/10 rounded-full blur-3xl" />
+            <div className="absolute top-0 left-1/4 w-96 h-96 bg-orange-200/30 rounded-full blur-3xl" />
+            <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-amber-200/30 rounded-full blur-3xl" />
           </div>
 
           {/* 顶部控制栏 */}
-          <div className={`relative flex items-center justify-between px-6 py-4 bg-white/5 backdrop-blur-xl border-b border-white/10 ${isFullscreen ? '' : 'rounded-t-2xl'}`}>
+          <div className="relative flex items-center justify-between px-6 py-4 bg-white/70 backdrop-blur-xl border-b border-orange-200">
             <div className="flex items-center gap-4">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-slate-500 to-slate-600 flex items-center justify-center shadow-lg shadow-slate-500/25">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-400 to-orange-500 flex items-center justify-center shadow-lg shadow-orange-400/25">
                 <Presentation size={20} className="text-white" />
               </div>
               <div>
-                <h2 className="text-white font-semibold text-lg">{currentPPT.title}</h2>
+                <h2 className="text-orange-800 font-semibold text-lg">{currentPPT.title}</h2>
                 <div className="flex items-center gap-3 mt-0.5">
-                  <span className="text-slate-400 text-sm">
+                  <span className="text-orange-600 text-sm">
                     第 {currentSlideIndex + 1} 页，共 {currentPPT.slides.length} 页
                   </span>
                   <div className="flex gap-1">
@@ -2057,7 +2250,7 @@ export default function ChatPage() {
                       <div
                         key={idx}
                         className={`h-1.5 rounded-full transition-all duration-300 ${
-                          idx === currentSlideIndex ? 'w-6 bg-slate-400' : 'w-1.5 bg-white/20'
+                          idx === currentSlideIndex ? 'w-6 bg-orange-500' : 'w-1.5 bg-orange-300/60'
                         }`}
                       />
                     ))}
@@ -2066,20 +2259,11 @@ export default function ChatPage() {
               </div>
             </div>
             <div className="flex items-center gap-2">
+              <span className="text-orange-400 text-xs mr-2">← → 切换 · ESC 关闭</span>
               <button
-                onClick={() => setIsFullscreen(!isFullscreen)}
-                className="p-2.5 text-white/70 hover:text-white hover:bg-white/10 rounded-xl transition-all"
-                title={isFullscreen ? '退出全屏' : '全屏'}
-              >
-                {isFullscreen ? <Minimize2 size={20} /> : <Maximize2 size={20} />}
-              </button>
-              <button
-                onClick={() => {
-                  setShowPPTModal(false);
-                  setIsFullscreen(false);
-                }}
-                className="p-2.5 text-white/70 hover:text-white hover:bg-white/10 rounded-xl transition-all"
-                title="关闭"
+                onClick={() => setShowPPTModal(false)}
+                className="p-2.5 text-orange-600 hover:text-orange-700 hover:bg-orange-100 rounded-xl transition-all"
+                title="关闭 (ESC)"
               >
                 <X size={20} />
               </button>
@@ -2087,19 +2271,19 @@ export default function ChatPage() {
           </div>
 
           {/* PPT内容区 */}
-          <div className={`relative flex-1 flex items-center justify-center ${isFullscreen ? '' : 'rounded-b-2xl overflow-hidden'}`}>
+          <div className="relative flex-1 flex items-center justify-center">
             {/* 左箭头 */}
             <button
               onClick={() => setCurrentSlideIndex(Math.max(0, currentSlideIndex - 1))}
               disabled={currentSlideIndex === 0}
-              className="absolute left-6 w-14 h-14 flex items-center justify-center bg-white/10 hover:bg-white/20 disabled:opacity-20 disabled:cursor-not-allowed rounded-2xl transition-all backdrop-blur-sm border border-white/10 z-10 group"
+              className="absolute left-6 w-14 h-14 flex items-center justify-center bg-white/80 hover:bg-white disabled:opacity-30 disabled:cursor-not-allowed rounded-2xl transition-all backdrop-blur-sm border border-orange-200 z-10 group shadow-lg"
             >
-              <ChevronLeft size={28} className="text-white group-hover:scale-110 transition-transform" />
+              <ChevronLeft size={28} className="text-orange-600 group-hover:scale-110 transition-transform" />
             </button>
 
             {/* 幻灯片 - 1920x1080 缩放到 960x540 显示 */}
             <div
-              className="mx-20 rounded-2xl overflow-hidden shadow-2xl shadow-black/50 relative ring-1 ring-white/10"
+              className="mx-20 rounded-2xl overflow-hidden shadow-2xl shadow-orange-900/20 relative ring-1 ring-orange-200"
               style={{ width: '960px', height: '540px' }}
             >
               <div
@@ -2121,22 +2305,22 @@ export default function ChatPage() {
             <button
               onClick={() => setCurrentSlideIndex(Math.min(currentPPT.slides.length - 1, currentSlideIndex + 1))}
               disabled={currentSlideIndex === currentPPT.slides.length - 1}
-              className="absolute right-6 w-14 h-14 flex items-center justify-center bg-white/10 hover:bg-white/20 disabled:opacity-20 disabled:cursor-not-allowed rounded-2xl transition-all backdrop-blur-sm border border-white/10 z-10 group"
+              className="absolute right-6 w-14 h-14 flex items-center justify-center bg-white/80 hover:bg-white disabled:opacity-30 disabled:cursor-not-allowed rounded-2xl transition-all backdrop-blur-sm border border-orange-200 z-10 group shadow-lg"
             >
-              <ChevronRight size={28} className="text-white group-hover:scale-110 transition-transform" />
+              <ChevronRight size={28} className="text-orange-600 group-hover:scale-110 transition-transform" />
             </button>
           </div>
 
           {/* 底部缩略图 */}
-          <div className={`relative flex items-center gap-3 px-6 py-4 bg-white/5 backdrop-blur-xl border-t border-white/10 overflow-x-auto ${isFullscreen ? '' : 'rounded-b-2xl'}`}>
+          <div className="relative flex items-center gap-3 px-6 py-4 bg-white/70 backdrop-blur-xl border-t border-orange-200 overflow-x-auto">
             {currentPPT.slides.map((slide, index) => (
               <button
                 key={index}
                 onClick={() => setCurrentSlideIndex(index)}
                 className={`flex-shrink-0 rounded-xl overflow-hidden transition-all duration-300 relative group ${
                   index === currentSlideIndex
-                    ? 'ring-2 ring-slate-400 ring-offset-2 ring-offset-slate-900 scale-105'
-                    : 'ring-1 ring-white/20 hover:ring-white/40 hover:scale-102'
+                    ? 'ring-2 ring-orange-400 ring-offset-2 ring-offset-orange-50 scale-105'
+                    : 'ring-1 ring-orange-200 hover:ring-orange-300 hover:scale-102'
                 }`}
                 style={{ width: '144px', height: '81px' }}
               >
@@ -2156,8 +2340,8 @@ export default function ChatPage() {
                 {/* 序号标签 */}
                 <div className={`absolute bottom-1 right-1 px-1.5 py-0.5 rounded text-xs font-medium transition-all ${
                   index === currentSlideIndex
-                    ? 'bg-slate-500 text-white'
-                    : 'bg-black/50 text-white/70 group-hover:bg-black/70'
+                    ? 'bg-orange-500 text-white'
+                    : 'bg-orange-900/50 text-white/80 group-hover:bg-orange-900/70'
                 }`}>
                   {index + 1}
                 </div>
@@ -2210,10 +2394,11 @@ export default function ChatPage() {
                             ? 'border-cyan-400 bg-cyan-50'
                             : 'border-gray-200 hover:border-cyan-300 hover:bg-gray-50'
                         }`}
-                        onClick={() => {
+                        onClick={async () => {
                           // 检查是否正在生成
                           if (isStreaming) {
-                            if (!window.confirm('当前正在生成内容，确定要切换到模板写作模式吗？')) {
+                            const confirmed = await showConfirm('当前正在生成内容，确定要切换到模板写作模式吗？');
+                            if (!confirmed) {
                               return;
                             }
                             abortControllerRef.current?.abort();
@@ -2363,7 +2548,7 @@ export default function ChatPage() {
                 <button
                   onClick={() => {
                     navigator.clipboard.writeText(documentContent);
-                    alert('已复制到剪贴板');
+                    message.success('已复制到剪贴板');
                   }}
                   className="flex items-center gap-1 px-2 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
                   title="复制全部内容"
@@ -2597,7 +2782,7 @@ export default function ChatPage() {
               <button
                 onClick={() => {
                   navigator.clipboard.writeText(reportContent);
-                  alert('已复制到剪贴板');
+                  message.success('已复制到剪贴板');
                 }}
                 className="flex items-center gap-1 px-2 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
                 title="复制全部内容"
@@ -2617,7 +2802,7 @@ export default function ChatPage() {
           </div>
 
           {/* 报告内容区 */}
-          <div className="flex-1 overflow-auto bg-gradient-to-b from-emerald-50/30 to-white p-6">
+          <div ref={reportContainerRef} onScroll={handleReportScroll} className="flex-1 overflow-auto bg-gradient-to-b from-emerald-50/30 to-white p-6">
             <div className="bg-white shadow-sm rounded-xl mx-auto max-w-3xl p-8 border border-gray-100">
               <article className="prose prose-emerald prose-sm max-w-none prose-headings:text-gray-800 prose-h1:text-2xl prose-h1:font-bold prose-h1:border-b prose-h1:border-emerald-200 prose-h1:pb-3 prose-h1:mb-6 prose-h2:text-lg prose-h2:font-semibold prose-h2:text-emerald-800 prose-h2:mt-6 prose-h2:mb-3 prose-hr:border-emerald-200 prose-hr:my-6 prose-p:text-gray-700 prose-p:leading-relaxed prose-strong:text-emerald-700 prose-ul:my-2 prose-li:my-1">
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>
