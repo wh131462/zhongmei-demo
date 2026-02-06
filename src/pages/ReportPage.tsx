@@ -10,6 +10,9 @@ import type { Dayjs } from 'dayjs';
 import isoWeek from 'dayjs/plugin/isoWeek';
 
 dayjs.extend(isoWeek);
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { marked } from 'marked';
 import { parseFile } from '../services/fileParserService';
 import {
   saveDailyFiles, loadDailyFiles,
@@ -68,16 +71,10 @@ const TEMPLATE_PROMPTS: Record<ReportTemplate, string> = {
 };
 
 /**
- * 导出文本内容为 Word 文档
+ * 导出文本内容为 Word 文档（支持 Markdown 格式渲染）
  */
 const exportToWord = (content: string, filename: string) => {
-  // 将换行转为 HTML 段落
-  const paragraphs = content.split('\n').map(line => {
-    if (line.trim() === '') {
-      return '<p style="margin: 0; line-height: 1.5;">&nbsp;</p>';
-    }
-    return `<p style="margin: 0 0 8px 0; line-height: 1.8; font-size: 14px;">${line}</p>`;
-  }).join('');
+  const htmlBody = marked(content, { async: false }) as string;
 
   const htmlContent = `
     <!DOCTYPE html>
@@ -94,13 +91,22 @@ const exportToWord = (content: string, filename: string) => {
           line-height: 1.8;
           padding: 40px;
         }
-        p {
-          margin: 0 0 8px 0;
-        }
+        h1 { font-size: 22px; font-weight: bold; margin: 16px 0 8px; }
+        h2 { font-size: 18px; font-weight: bold; margin: 14px 0 6px; }
+        h3 { font-size: 16px; font-weight: bold; margin: 12px 0 4px; }
+        p { margin: 0 0 8px 0; }
+        ul, ol { margin: 4px 0 8px 20px; }
+        li { margin: 2px 0; }
+        table { border-collapse: collapse; width: 100%; margin: 8px 0; }
+        th, td { border: 1px solid #999; padding: 6px 10px; text-align: left; }
+        th { background-color: #f0f0f0; font-weight: bold; }
+        strong { font-weight: bold; }
+        em { font-style: italic; }
+        blockquote { margin: 8px 0; padding-left: 12px; border-left: 3px solid #ccc; color: #555; }
       </style>
     </head>
     <body>
-      ${paragraphs}
+      ${htmlBody}
     </body>
     </html>
   `;
@@ -596,7 +602,7 @@ function WeeklyTab({ files, result, setResult, history, setHistory }: {
   const [selectedFileIds, setSelectedFileIds] = useState<Set<string>>(new Set());
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [template, setTemplate] = useState<ReportTemplate>('detailed');
+  const [template] = useState<ReportTemplate>('detailed');
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState('');
   const [showHistory, setShowHistory] = useState(false);
@@ -711,7 +717,7 @@ function WeeklyTab({ files, result, setResult, history, setHistory }: {
 - 禁止编造数据、进度或结论
 - 禁止遗漏任何一份日报的内容
 ${TEMPLATE_PROMPTS[template]}
-请直接输出周报内容，使用纯文本格式（不要使用 Markdown 格式）。`;
+请直接输出周报内容，使用 Markdown 格式（支持标题、列表、加粗等）。`;
 
     try {
       const controller = new AbortController();
@@ -928,27 +934,6 @@ ${TEMPLATE_PROMPTS[template]}
         <button onClick={nextWeek} className="p-2 hover:bg-gray-100 rounded-lg">
           <ChevronRight size={20} className="text-gray-600" />
         </button>
-      </div>
-
-      {/* 模板选择 */}
-      <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
-        <span className="text-sm font-medium text-gray-700 mr-3">报告风格</span>
-        <div className="inline-flex gap-2 mt-2">
-          {(Object.keys(TEMPLATE_CONFIG) as ReportTemplate[]).map(t => (
-            <button
-              key={t}
-              onClick={() => setTemplate(t)}
-              className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
-                template === t
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-white text-gray-700 hover:bg-gray-50'
-              }`}
-              title={TEMPLATE_CONFIG[t].description}
-            >
-              {TEMPLATE_CONFIG[t].name}
-            </button>
-          ))}
-        </div>
       </div>
 
       {/* 周时间线 */}
@@ -1197,9 +1182,9 @@ ${TEMPLATE_PROMPTS[template]}
                     className="w-full h-96 p-3 text-sm text-gray-700 leading-relaxed font-sans border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
                   />
                 ) : (
-                  <pre className="whitespace-pre-wrap text-sm text-gray-700 leading-relaxed font-sans">
-                    {result}
-                  </pre>
+                  <article className="prose prose-sm max-w-none prose-headings:text-gray-800 prose-h1:text-lg prose-h1:font-bold prose-h2:text-base prose-h2:font-semibold prose-h3:text-sm prose-h3:font-semibold prose-hr:my-3 prose-p:text-gray-700 prose-p:leading-relaxed prose-p:my-1.5 prose-strong:text-gray-800 prose-ul:my-1.5 prose-li:my-0.5">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{result}</ReactMarkdown>
+                  </article>
                 )}
               </div>
             </div>
@@ -1222,8 +1207,7 @@ function MonthlyTab({ files, result, setResult, weeklyHistory, history, setHisto
   const [selectedWeeklyIds, setSelectedWeeklyIds] = useState<Set<string>>(new Set());
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [sourceType, setSourceType] = useState<'daily' | 'weekly' | 'multi-weekly'>('daily');
-  const [template, setTemplate] = useState<ReportTemplate>('detailed');
+  const [sourceType, setSourceType] = useState<'daily' | 'multi-weekly'>('daily');
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState('');
   const [showHistory, setShowHistory] = useState(false);
@@ -1381,35 +1365,9 @@ function MonthlyTab({ files, result, setResult, weeklyHistory, history, setHisto
 - 禁止使用"等"、"若干"、"部分"等模糊词汇替代具体信息
 - 禁止编造数据、进度、完成率或任何结论
 - 禁止遗漏任何一份周报的内容
-${TEMPLATE_PROMPTS[template]}
-请直接输出月报内容，使用纯文本格式（不要使用 Markdown 格式）。`;
+请直接输出月报内容，使用 Markdown 格式（支持标题、列表、加粗等）。`;
 
       userContent = `以下是本月的 ${selectedWeeklies.length} 份周报内容，请逐份完整阅读后生成月报。\n\n${combinedContent}`;
-    } else if (sourceType === 'weekly' && weeklyHistory.length > 0) {
-      // 基于最新周报生成
-      const latestWeekly = weeklyHistory[0];
-
-      systemPrompt = `你是一个专业的工作报告撰写助手。用户会提供周报内容，请根据周报内容生成一份月报。
-
-【核心原则 - 必须严格遵守】
-1. 真实性原则：所有内容必须100%来源于周报原文，严禁编造、推测或添加周报中未提及的任何信息
-2. 信息密度原则：保留周报中的具体细节（项目名称、任务描述、数据指标、人员等），避免空泛概括
-3. 风格一致性原则：保持与周报原文相近的表述风格和专业术语，不要过度改写
-
-【输出要求】
-1. 将周报内容整理成月报格式，按项目或类别组织
-2. 保留关键细节：具体任务名称、进度百分比、数量指标、涉及人员/系统、时间节点等
-3. 突出本月重点项目和主要成果（必须有周报依据）
-4. 列出存在的问题和下月计划（仅当周报中有提及时才写）
-5. 语言正式专业，适合作为月度工作汇报
-
-【禁止事项】
-- 禁止添加周报中没有的工作内容
-- 禁止编造数据、进度、完成率或任何结论
-${TEMPLATE_PROMPTS[template]}
-请直接输出月报内容，使用纯文本格式（不要使用 Markdown 格式）。`;
-
-      userContent = `以下是周报内容（${latestWeekly.dateRange.start} ~ ${latestWeekly.dateRange.end}），请基于此生成月报：\n\n${latestWeekly.content}`;
     } else {
       // 基于日报生成
       if (selectedFileIds.size === 0) {
@@ -1442,8 +1400,7 @@ ${TEMPLATE_PROMPTS[template]}
 - 禁止使用"等"、"若干"、"部分"等模糊词汇替代具体信息
 - 禁止编造数据、进度、完成率或任何结论
 - 禁止遗漏任何一份日报的内容
-${TEMPLATE_PROMPTS[template]}
-请直接输出月报内容，使用纯文本格式（不要使用 Markdown 格式）。`;
+请直接输出月报内容，使用 Markdown 格式（支持标题、列表、加粗等）。`;
 
       userContent = `以下是本月的 ${selectedFiles.length} 份日报内容，请逐份完整阅读后生成月报。\n\n${combinedContent}`;
     }
@@ -1556,7 +1513,7 @@ ${TEMPLATE_PROMPTS[template]}
       content,
       createdAt: Date.now(),
       updatedAt: Date.now(),
-      template,
+      template: 'detailed' as ReportTemplate,
       month,
       sourceType,
       sourceFileIds: sourceType === 'daily' ? Array.from(selectedFileIds) : undefined,
@@ -1606,7 +1563,7 @@ ${TEMPLATE_PROMPTS[template]}
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-gray-800 truncate">{report.month} 月报</p>
                   <p className="text-xs text-gray-400">
-                    {TEMPLATE_CONFIG[report.template].name} &middot; {report.sourceType === 'daily' ? '基于日报' : '基于周报'} &middot; {new Date(report.createdAt).toLocaleString()}
+                    {report.sourceType === 'daily' ? '基于日报' : '基于周报'} &middot; {new Date(report.createdAt).toLocaleString()}
                   </p>
                 </div>
                 <div className="flex items-center gap-1">
@@ -1626,22 +1583,9 @@ ${TEMPLATE_PROMPTS[template]}
           <button onClick={() => setSourceType('daily')} className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${sourceType === 'daily' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}>
             <FileText size={16} />基于日报生成
           </button>
-          <button onClick={() => weeklyHistory.length > 0 && setSourceType('weekly')} disabled={weeklyHistory.length === 0} className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${sourceType === 'weekly' ? 'bg-blue-600 text-white' : weeklyHistory.length > 0 ? 'bg-white text-gray-700 hover:bg-gray-50' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}>
-            <Calendar size={16} />基于最新周报{weeklyHistory.length === 0 && <span className="text-xs">（需先保存周报）</span>}
-          </button>
           <button onClick={() => weeklyHistory.length > 0 && setSourceType('multi-weekly')} disabled={weeklyHistory.length === 0} className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${sourceType === 'multi-weekly' ? 'bg-blue-600 text-white' : weeklyHistory.length > 0 ? 'bg-white text-gray-700 hover:bg-gray-50' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}>
             <BarChart3 size={16} />多周报合成{weeklyHistory.length === 0 && <span className="text-xs">（需先保存周报）</span>}
           </button>
-        </div>
-      </div>
-
-      {/* 模板选择 */}
-      <div className="mb-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
-        <span className="text-sm font-medium text-gray-700 mr-3">报告风格</span>
-        <div className="inline-flex gap-2 mt-2">
-          {(Object.keys(TEMPLATE_CONFIG) as ReportTemplate[]).map(t => (
-            <button key={t} onClick={() => setTemplate(t)} className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${template === t ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-100'}`} title={TEMPLATE_CONFIG[t].description}>{TEMPLATE_CONFIG[t].name}</button>
-          ))}
         </div>
       </div>
 
@@ -1671,16 +1615,6 @@ ${TEMPLATE_PROMPTS[template]}
                 </label>
               ))
             )}
-          </div>
-        </div>
-      )}
-
-      {/* 基于最新周报 */}
-      {sourceType === 'weekly' && weeklyHistory.length > 0 && (
-        <div className="mb-6 p-4 bg-gray-50 rounded-lg">
-          <span className="text-sm font-medium text-gray-700 block mb-2">将使用最新周报（{weeklyHistory[0].dateRange.start} ~ {weeklyHistory[0].dateRange.end}）</span>
-          <div className="max-h-32 overflow-y-auto bg-white border border-gray-200 rounded-lg p-3">
-            <pre className="whitespace-pre-wrap text-sm text-gray-600 font-sans">{weeklyHistory[0].content.slice(0, 300)}{weeklyHistory[0].content.length > 300 ? '...' : ''}</pre>
           </div>
         </div>
       )}
@@ -1883,7 +1817,9 @@ ${TEMPLATE_PROMPTS[template]}
             {isEditing ? (
               <textarea value={editContent} onChange={(e) => setEditContent(e.target.value)} className="w-full h-96 p-3 text-sm text-gray-700 leading-relaxed font-sans border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
             ) : (
-              <pre className="whitespace-pre-wrap text-sm text-gray-700 leading-relaxed font-sans">{result}</pre>
+              <article className="prose prose-sm max-w-none prose-headings:text-gray-800 prose-h1:text-lg prose-h1:font-bold prose-h2:text-base prose-h2:font-semibold prose-h3:text-sm prose-h3:font-semibold prose-hr:my-3 prose-p:text-gray-700 prose-p:leading-relaxed prose-p:my-1.5 prose-strong:text-gray-800 prose-ul:my-1.5 prose-li:my-0.5">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{result}</ReactMarkdown>
+              </article>
             )}
           </div>
         </div>

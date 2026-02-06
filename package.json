@@ -11,10 +11,12 @@
   },
   "dependencies": {
     "@tailwindcss/typography": "^0.5.19",
+    "@types/marked": "^5.0.2",
     "antd": "^6.2.3",
     "jszip": "^3.10.1",
     "lucide-react": "^0.563.0",
     "mammoth": "^1.11.0",
+    "marked": "^17.0.1",
     "pdfjs-dist": "^5.4.624",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
