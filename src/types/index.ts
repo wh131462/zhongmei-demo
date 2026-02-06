@@ -64,6 +64,34 @@ export interface UploadedDailyFile {
   fileName: string;
   content: string;
   uploadTime: number;
+  workDate?: string; // 工作日期 YYYY-MM-DD
+}
+
+// 报告模板类型
+export type ReportTemplate = 'concise' | 'detailed' | 'formal';
+
+// AI 生成的周报历史记录
+export interface GeneratedWeeklyReport {
+  id: string;
+  content: string;
+  createdAt: number;
+  updatedAt: number;
+  sourceFileIds: string[];
+  template: ReportTemplate;
+  dateRange: { start: string; end: string };
+}
+
+// AI 生成的月报历史记录
+export interface GeneratedMonthlyReport {
+  id: string;
+  content: string;
+  createdAt: number;
+  updatedAt: number;
+  template: ReportTemplate;
+  month: string; // YYYY-MM
+  sourceType: 'daily' | 'weekly' | 'multi-weekly';
+  sourceFileIds?: string[];
+  sourceWeeklyIds?: string[];
 }
 
 // 知识库文档分块
