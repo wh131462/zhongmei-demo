@@ -2,8 +2,12 @@ import { useState, useRef, useEffect } from 'react';
 import {
   Send, Bot, User, Database, Pen, FileText, Trash2,
   ChevronDown, Loader2, Square, RotateCcw, Copy, Check, X,
-  Presentation, ChevronLeft, ChevronRight, Maximize2, Minimize2
+  Presentation, ChevronLeft, ChevronRight, Maximize2, Minimize2,
+  Upload, Download, Eye, FileEdit, Save, Printer,
+  AlignLeft, AlignCenter, AlignRight, Bold, Italic, Underline, Type
 } from 'lucide-react';
+import type { KnowledgeBase } from '../types';
+import { getAllKnowledgeBases, buildPromptWithRAG } from '../services/knowledgeBaseService';
 
 /* ============================== 配置与数据 ============================== */
 
@@ -12,14 +16,6 @@ const API_CONFIG = {
   key: 'sk-ycd03E09f7cG1',
   model: 'yantronic-o1-mini',
 };
-
-interface KnowledgeBase {
-  id: string;
-  name: string;
-  description: string;
-  icon: string;
-  systemPrompt: string;
-}
 
 interface WritingMode {
   id: string;
@@ -42,74 +38,59 @@ interface ChatMessage {
   timestamp: number;
 }
 
-const knowledgeBases: KnowledgeBase[] = [
-  {
-    id: 'general',
-    name: '通用知识库',
-    description: '不限定领域，通用AI对话',
-    icon: '🌐',
-    systemPrompt: '你是一个智能助手，能够帮助用户回答各类问题。请用中文回复。',
-  },
-  {
-    id: 'company',
-    name: '企业制度',
-    description: '公司规章制度、流程规范',
-    icon: '🏢',
-    systemPrompt: '你是企业内部的制度咨询助手，熟悉公司各项规章制度、考勤管理、报销流程、绩效考核等。请基于企业管理的专业知识来回答问题。请用中文回复。',
-  },
-  {
-    id: 'legal',
-    name: '法律法规',
-    description: '法律条文、合规咨询',
-    icon: '⚖️',
-    systemPrompt: '你是法律咨询助手，熟悉中国法律法规。请基于法律专业知识为用户提供合规建议和法律解读。注意声明你的回答不构成正式法律意见。请用中文回复。',
-  },
-  {
-    id: 'tech',
-    name: '技术文档',
-    description: '技术开发、API文档、最佳实践',
-    icon: '💻',
-    systemPrompt: '你是技术文档助手，擅长软件开发、系统架构、API设计等技术领域。请提供准确的技术解答和代码示例。请用中文回复。',
-  },
-  {
-    id: 'sales',
-    name: '销售话术',
-    description: '销售技巧、客户沟通',
-    icon: '💼',
-    systemPrompt: '你是销售培训助手，擅长销售技巧、客户沟通、商务谈判等。请提供实用的销售策略和话术建议。请用中文回复。',
-  },
-];
-
 const writingModes: WritingMode[] = [
   {
     id: 'normal',
-    name: '标准对话',
-    description: '正常的对话模式',
+    name: '普通对话',
+    description: '正常的AI对话模式',
     systemPrompt: '',
+  },
+  {
+    id: 'quick_writing',
+    name: '快速写作',
+    description: '使用模板快速生成内容',
+    systemPrompt: '你是一个专业的写作助手，请根据用户选择的模板和输入的内容，生成高质量的文本。',
+  },
+];
+
+// 写作风格列表 - 用于在快速写作模式下追加到提示词
+interface WritingStyle {
+  id: string;
+  name: string;
+  description: string;
+  prompt: string;
+}
+
+const writingStyles: WritingStyle[] = [
+  {
+    id: 'none',
+    name: '默认风格',
+    description: '不添加额外风格要求',
+    prompt: '',
   },
   {
     id: 'formal',
     name: '正式公文',
     description: '严谨、正式的公文写作风格',
-    systemPrompt: '请使用正式、严谨的公文写作风格回复。语言要规范、用词准确、逻辑清晰，符合公文写作规范。',
+    prompt: '请使用正式、严谨的公文写作风格。语言要规范、用词准确、逻辑清晰，符合公文写作规范。',
   },
   {
     id: 'creative',
     name: '创意写作',
     description: '富有创意和文学性的表达',
-    systemPrompt: '请使用富有创意和文学性的风格回复。可以适当使用修辞手法、比喻、排比等，让文字生动有感染力。',
+    prompt: '请使用富有创意和文学性的风格。可以适当使用修辞手法、比喻、排比等，让文字生动有感染力。',
   },
   {
     id: 'concise',
     name: '简洁精炼',
     description: '言简意赅，直击要点',
-    systemPrompt: '请用最简洁的语言回复，直击要点，不要废话。每个要点用一句话概括，使用列表或编号格式。',
+    prompt: '请用最简洁的语言回复，直击要点，不要废话。每个要点用一句话概括，使用列表或编号格式。',
   },
   {
     id: 'explain',
     name: '详细解释',
     description: '深入浅出，循序渐进',
-    systemPrompt: '请用深入浅出的方式详细解释，可以举例说明，确保即使是非专业人士也能理解。分步骤、分层次讲解。',
+    prompt: '请用深入浅出的方式详细解释，可以举例说明，确保即使是非专业人士也能理解。分步骤、分层次讲解。',
   },
 ];
 
@@ -174,6 +155,82 @@ interface PPTData {
   title: string;
 }
 
+interface TemplateData {
+  id: string;
+  fileName: string;
+  content: string;
+  uploadTime: number;
+}
+
+// 历史模板存储
+const TEMPLATE_STORAGE_KEY = 'writing_templates';
+
+const getStoredTemplates = (): TemplateData[] => {
+  try {
+    const stored = localStorage.getItem(TEMPLATE_STORAGE_KEY);
+    return stored ? JSON.parse(stored) : [];
+  } catch {
+    return [];
+  }
+};
+
+const saveTemplate = (template: TemplateData): void => {
+  const templates = getStoredTemplates();
+  // 检查是否已存在同名模板，存在则更新
+  const existingIndex = templates.findIndex(t => t.fileName === template.fileName);
+  if (existingIndex >= 0) {
+    templates[existingIndex] = template;
+  } else {
+    templates.unshift(template); // 新模板放最前面
+  }
+  // 最多保存20个模板
+  localStorage.setItem(TEMPLATE_STORAGE_KEY, JSON.stringify(templates.slice(0, 20)));
+};
+
+const deleteStoredTemplate = (id: string): void => {
+  const templates = getStoredTemplates().filter(t => t.id !== id);
+  localStorage.setItem(TEMPLATE_STORAGE_KEY, JSON.stringify(templates));
+};
+
+/* ============================== 模板写作配置 ============================== */
+
+const TEMPLATE_WRITING_PROMPT = `你是一个专业的文档写作助手。用户已上传了一个文档模板，你需要根据模板的格式和结构来帮助用户完成写作。
+
+## 用户上传的模板内容：
+{TEMPLATE_CONTENT}
+
+## 你的任务：
+1. 分析模板的结构和格式要求
+2. 根据用户的具体需求，按照模板格式生成内容
+3. 保持与模板一致的写作风格和格式规范
+4. 确保生成的内容专业、准确、符合模板要求
+
+## 重要输出格式要求：
+当你生成完整文档时，请按以下结构输出：
+
+1. 首先，用1-2句话说明你即将做什么（例如：正在根据模板和需求为您编写文档...）
+
+2. 然后，使用特殊标识包裹文档内容：
+===DOCUMENT_START===
+[完整的文档内容]
+===DOCUMENT_END===
+
+3. 最后，用1-2句话做简短的完成说明（例如：文档已按照模板格式生成完成，您可以在右侧编辑器中查看和修改。）
+
+标识说明：
+- ===DOCUMENT_START=== 和 ===DOCUMENT_END=== 必须各占一行
+- 只有生成完整文档时才使用这个格式
+- 如果只是回答问题或给建议，直接回复即可，不需要使用标识
+
+请根据用户的输入，生成符合模板格式的文档内容。`;
+
+const TYPO_FIX_PROMPT = `在生成或处理文档内容时，请同时执行以下任务：
+1. 检查并修复所有错别字、拼写错误
+2. 修正标点符号使用不当的地方
+3. 纠正语法错误
+4. 保持原文意思不变，只进行必要的文字修正
+5. 如果发现并修复了错误，在回复末尾简要列出修改项`;
+
 const parsePPTContent = (content: string): PPTData | null => {
   if (!content.includes('===SLIDE===')) return null;
 
@@ -192,14 +249,49 @@ const parsePPTContent = (content: string): PPTData | null => {
   return { slides, title };
 };
 
+// 解析文档内容
+interface DocumentData {
+  content: string;
+  beforeText: string;
+  afterText: string;
+}
+
+const parseDocumentContent = (content: string): DocumentData | null => {
+  const startMarker = '===DOCUMENT_START===';
+  const endMarker = '===DOCUMENT_END===';
+
+  const startIndex = content.indexOf(startMarker);
+  if (startIndex === -1) return null;
+
+  const endIndex = content.indexOf(endMarker);
+  const hasEndMarker = endIndex !== -1 && endIndex > startIndex;
+
+  const beforeText = content.substring(0, startIndex).trim();
+  const docContent = hasEndMarker
+    ? content.substring(startIndex + startMarker.length, endIndex).trim()
+    : content.substring(startIndex + startMarker.length).trim();
+  const afterText = hasEndMarker
+    ? content.substring(endIndex + endMarker.length).trim()
+    : '';
+
+  return {
+    content: docContent,
+    beforeText,
+    afterText,
+  };
+};
+
 /* ============================== 主组件 ============================== */
 
 export default function ChatPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
-  const [selectedKB, setSelectedKB] = useState<KnowledgeBase>(knowledgeBases[0]);
+  const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>(() => getAllKnowledgeBases());
+  const [selectedKB, setSelectedKB] = useState<KnowledgeBase | null>(() => getAllKnowledgeBases()[0] || null);
   const [selectedMode, setSelectedMode] = useState<WritingMode>(writingModes[0]);
+  const [selectedStyle, setSelectedStyle] = useState<WritingStyle>(writingStyles[0]);
+  const [selectedTemplate, setSelectedTemplate] = useState<PromptTemplate | null>(null);
   const [showKBModal, setShowKBModal] = useState(false);
   const [showModeDropdown, setShowModeDropdown] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
@@ -209,14 +301,76 @@ export default function ChatPage() {
   const [currentPPT, setCurrentPPT] = useState<PPTData | null>(null);
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  // 模板写作模式状态
+  const [templateMode, setTemplateMode] = useState(false);
+  const [templateData, setTemplateData] = useState<TemplateData | null>(null);
+  const [enableTypoFix] = useState(true); // 始终启用纠错，不展示开关
+  const [showTemplatePreview, setShowTemplatePreview] = useState(false);
+  const [showTemplateManager, setShowTemplateManager] = useState(false);
+  const [storedTemplates, setStoredTemplates] = useState<TemplateData[]>(() => getStoredTemplates());
+  // 文档编辑器状态
+  const [documentContent, setDocumentContent] = useState('');
+  const [showDocumentEditor, setShowDocumentEditor] = useState(false);
+  const documentEditorRef = useRef<HTMLTextAreaElement>(null);
+  const documentEditorContainerRef = useRef<HTMLDivElement>(null);
+  const userScrollPausedRef = useRef(false); // 用户手动滚动时暂停自动滚动
+  const scrollResumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastScrollTopRef = useRef(0); // 记录上次滚动位置
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const modeDropdownRef = useRef<HTMLDivElement>(null);
+  const templateFileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  // 文档内容变化时自动调整 textarea 高度 + 自动滚动
+  useEffect(() => {
+    if (documentEditorRef.current) {
+      documentEditorRef.current.style.height = 'auto';
+      documentEditorRef.current.style.height = documentEditorRef.current.scrollHeight + 'px';
+    }
+    // 流式写入时自动滚动到底部（用户手动滚动时暂停）
+    if (isStreaming && documentEditorContainerRef.current && !userScrollPausedRef.current) {
+      const container = documentEditorContainerRef.current;
+      container.scrollTop = container.scrollHeight;
+      lastScrollTopRef.current = container.scrollTop;
+    }
+  }, [documentContent, isStreaming]);
+
+  // 文档编辑器滚动事件：检测用户手动滚动
+  const handleEditorScroll = () => {
+    if (!isStreaming || !documentEditorContainerRef.current) return;
+    const container = documentEditorContainerRef.current;
+    const currentScrollTop = container.scrollTop;
+    // 用户向上滚动时暂停自动滚动
+    if (currentScrollTop < lastScrollTopRef.current - 10) {
+      userScrollPausedRef.current = true;
+      // 清除之前的恢复定时器
+      if (scrollResumeTimerRef.current) {
+        clearTimeout(scrollResumeTimerRef.current);
+      }
+      // 3秒后恢复自动滚动
+      scrollResumeTimerRef.current = setTimeout(() => {
+        userScrollPausedRef.current = false;
+        scrollResumeTimerRef.current = null;
+      }, 3000);
+    }
+    lastScrollTopRef.current = currentScrollTop;
+  };
+
+  // 流式结束时重置滚动暂停状态
+  useEffect(() => {
+    if (!isStreaming) {
+      userScrollPausedRef.current = false;
+      if (scrollResumeTimerRef.current) {
+        clearTimeout(scrollResumeTimerRef.current);
+        scrollResumeTimerRef.current = null;
+      }
+    }
+  }, [isStreaming]);
 
   // 点击外部关闭下拉框
   useEffect(() => {
@@ -229,13 +383,36 @@ export default function ChatPage() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const buildSystemPrompt = () => {
+  const buildSystemPrompt = (userQuery: string) => {
     if (pptMode) {
       return PPT_SYSTEM_PROMPT;
     }
-    const parts = [selectedKB.systemPrompt];
+    // 获取知识库RAG上下文
+    const ragContext = selectedKB ? buildPromptWithRAG(selectedKB, userQuery) : '';
+
+    // 模板写作模式
+    if (templateMode && templateData) {
+      const parts: string[] = [];
+      if (ragContext) {
+        parts.push(ragContext);
+      }
+      parts.push(TEMPLATE_WRITING_PROMPT.replace('{TEMPLATE_CONTENT}', templateData.content));
+      if (enableTypoFix) {
+        parts.push(TYPO_FIX_PROMPT);
+      }
+      parts.push('重要约束：你的回复不能使用任何Markdown格式（包括但不限于标题#、加粗**、列表-/*、代码块```、链接[]()等）。请使用纯文本格式回复，用换行和空格来组织内容结构。');
+      return parts.join('\n\n');
+    }
+    const parts: string[] = [];
+    if (ragContext) {
+      parts.push(ragContext);
+    }
     if (selectedMode.systemPrompt) {
       parts.push(selectedMode.systemPrompt);
+    }
+    // 快速写作模式下追加风格提示词
+    if (selectedMode.id === 'quick_writing' && selectedStyle.prompt) {
+      parts.push(selectedStyle.prompt);
     }
     parts.push('重要约束：你的回复不能使用任何Markdown格式（包括但不限于标题#、加粗**、列表-/*、代码块```、链接[]()等）。请使用纯文本格式回复，用换行和空格来组织内容结构。');
     return parts.join('\n\n');
@@ -272,7 +449,7 @@ export default function ChatPage() {
       abortControllerRef.current = controller;
 
       const apiMessages = [
-        { role: 'system', content: buildSystemPrompt() },
+        { role: 'system', content: buildSystemPrompt(text) },
         ...newMessages.map(m => ({ role: m.role, content: m.content })),
       ];
 
@@ -301,6 +478,7 @@ export default function ChatPage() {
 
       const decoder = new TextDecoder();
       let fullContent = '';
+      let documentEditorOpened = false;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -326,6 +504,19 @@ export default function ChatPage() {
                       : m
                   )
                 );
+
+                // 模板写作模式：检测到文档标记时自动打开编辑器并实时更新
+                if (templateMode && fullContent.includes('===DOCUMENT_START===')) {
+                  if (!documentEditorOpened) {
+                    setShowDocumentEditor(true);
+                    documentEditorOpened = true;
+                  }
+                  // 实时更新编辑器内容
+                  const docData = parseDocumentContent(fullContent);
+                  if (docData) {
+                    setDocumentContent(docData.content);
+                  }
+                }
               }
             } catch {
               // 忽略解析错误
@@ -378,6 +569,7 @@ export default function ChatPage() {
 
   const handleTemplateSelect = (template: PromptTemplate) => {
     setInputText(template.prompt);
+    setSelectedTemplate(template);
     setShowTemplates(false);
     textareaRef.current?.focus();
   };
@@ -403,12 +595,85 @@ export default function ChatPage() {
     }
   };
 
-  const templateCategories = [...new Set(promptTemplates.map(t => t.category))];
+  // 模板文件上传处理
+  const handleTemplateFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const fileName = file.name;
+    const fileExt = fileName.split('.').pop()?.toLowerCase();
+
+    try {
+      let content = '';
+
+      if (fileExt === 'txt' || fileExt === 'md') {
+        content = await file.text();
+      } else if (fileExt === 'docx') {
+        const arrayBuffer = await file.arrayBuffer();
+        const mammoth = await import('mammoth');
+        const result = await mammoth.extractRawText({ arrayBuffer });
+        content = result.value;
+      } else {
+        alert('不支持的文件格式，请上传 .txt、.md 或 .docx 文件');
+        return;
+      }
+
+      if (content.trim()) {
+        const newTemplate: TemplateData = {
+          id: `tpl_${Date.now()}`,
+          fileName,
+          content: content.trim(),
+          uploadTime: Date.now(),
+        };
+        saveTemplate(newTemplate); // 保存到历史记录
+        setStoredTemplates(getStoredTemplates()); // 刷新列表
+        setTemplateData(newTemplate);
+        setTemplateMode(true);
+        setPptMode(false); // 退出PPT模式
+        setMessages([]); // 清空对话
+        setShowTemplateManager(false); // 关闭弹窗
+      } else {
+        alert('文件内容为空');
+      }
+    } catch (error) {
+      console.error('文件读取失败:', error);
+      alert('文件读取失败，请重试');
+    }
+
+    // 清空 input 以便再次选择同一文件
+    e.target.value = '';
+  };
+
+  // 退出模板写作模式
+  const exitTemplateMode = () => {
+    setTemplateMode(false);
+    setTemplateData(null);
+    setMessages([]);
+  };
+
+  // 导出生成的内容
+  const handleExportContent = () => {
+    const lastAssistantMsg = [...messages].reverse().find(m => m.role === 'assistant');
+    if (!lastAssistantMsg?.content) {
+      alert('没有可导出的内容');
+      return;
+    }
+
+    const blob = new Blob([lastAssistantMsg.content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `生成内容_${new Date().toLocaleDateString()}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
-    <div className="flex justify-center h-[calc(100vh-110px)]">
-      {/* 对话区 - 居中且限制最大宽度 */}
-      <div className="w-full max-w-4xl flex flex-col bg-white rounded-lg shadow-sm overflow-hidden">
+    <div className="flex h-[calc(100vh-110px)] gap-4">
+      {/* 对话区 - 根据编辑器状态调整宽度 */}
+      <div className={`flex flex-col bg-white rounded-lg shadow-sm overflow-hidden transition-all duration-300 ${
+        showDocumentEditor ? 'w-1/2' : 'w-full max-w-4xl mx-auto'
+      }`}>
         {/* 对话头部 */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
           <div className="flex items-center gap-2">
@@ -416,46 +681,6 @@ export default function ChatPage() {
             <span className="font-medium text-gray-800">AI 助手</span>
           </div>
           <div className="flex items-center gap-2">
-            {/* 右上角模板按钮 */}
-            <div className="relative">
-              <button
-                onClick={() => setShowTemplates(!showTemplates)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg transition-colors ${
-                  showTemplates
-                    ? 'bg-green-100 text-green-700'
-                    : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700'
-                }`}
-              >
-                <FileText size={16} />
-                模板
-              </button>
-
-              {/* 模板下拉面板 */}
-              {showTemplates && (
-                <div className="absolute right-0 top-full mt-2 w-80 bg-white border border-gray-200 rounded-lg shadow-xl z-30 overflow-hidden">
-                  <div className="p-3 border-b border-gray-100 bg-gray-50">
-                    <h4 className="font-medium text-gray-700 text-sm">提示词模板</h4>
-                  </div>
-                  <div className="max-h-80 overflow-y-auto p-2">
-                    {templateCategories.map(category => (
-                      <div key={category} className="mb-2">
-                        <p className="text-xs text-gray-400 font-medium px-2 py-1">{category}</p>
-                        {promptTemplates.filter(t => t.category === category).map(template => (
-                          <button
-                            key={template.id}
-                            onClick={() => handleTemplateSelect(template)}
-                            className="w-full text-left px-3 py-2 text-sm text-gray-600 hover:bg-green-50 hover:text-green-700 rounded-lg transition-colors"
-                          >
-                            {template.name}
-                          </button>
-                        ))}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-
             {messages.length > 0 && (
               <button
                 onClick={handleClear}
@@ -485,6 +710,24 @@ export default function ChatPage() {
                         className="px-3 py-1.5 text-sm border border-orange-200 rounded-full text-orange-500 hover:border-orange-400 hover:text-orange-600 hover:bg-orange-50 transition-colors"
                       >
                         {topic}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              ) : templateMode && templateData ? (
+                <>
+                  <FileText size={48} className="mb-4 text-cyan-400" />
+                  <p className="text-lg font-medium text-gray-500">模板写作模式</p>
+                  <p className="text-sm mt-1">已加载模板: {templateData.fileName}</p>
+                  <p className="text-xs text-gray-400 mt-1">输入写作需求，AI将根据模板格式生成内容</p>
+                  <div className="mt-6 flex flex-wrap gap-2 justify-center max-w-lg">
+                    {['根据模板写一份完整的文档', '分析模板结构并给出写作建议', '帮我填充模板中的空白部分'].map(prompt => (
+                      <button
+                        key={prompt}
+                        onClick={() => setInputText(prompt)}
+                        className="px-3 py-1.5 text-sm border border-cyan-200 rounded-full text-cyan-600 hover:border-cyan-400 hover:text-cyan-700 hover:bg-cyan-50 transition-colors"
+                      >
+                        {prompt}
                       </button>
                     ))}
                   </div>
@@ -585,12 +828,90 @@ export default function ChatPage() {
                           </div>
                         );
                       }
+                      // 检查是否有文档内容
+                      const docData = parseDocumentContent(message.content);
+                      if (docData) {
+                        return (
+                          <div className="space-y-3">
+                            {/* 文档前的文字 */}
+                            {docData.beforeText && (
+                              <div className="whitespace-pre-wrap">{docData.beforeText}</div>
+                            )}
+                            {/* 文档卡片 - 美观设计，不展示内容 */}
+                            <div
+                              className={`relative overflow-hidden rounded-xl border ${isStreaming ? 'cursor-default' : 'cursor-pointer group'} transition-all duration-300 hover:shadow-lg`}
+                              style={{
+                                background: 'linear-gradient(135deg, #e0f2fe 0%, #ddd6fe 50%, #fce7f3 100%)',
+                              }}
+                              onClick={() => {
+                                if (isStreaming) return;
+                                setDocumentContent(docData.content);
+                                setShowDocumentEditor(true);
+                              }}
+                            >
+                              {/* 装饰性背景图案 */}
+                              <div className="absolute inset-0 opacity-10">
+                                <div className="absolute top-4 right-4 w-32 h-32 border-4 border-cyan-500 rounded-full" />
+                                <div className="absolute bottom-4 left-4 w-24 h-24 border-4 border-purple-500 rounded-lg rotate-12" />
+                                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-16 h-16 bg-pink-400 rounded-full blur-xl" />
+                              </div>
+
+                              {/* 卡片内容 */}
+                              <div className="relative px-5 py-4">
+                                <div className="flex items-center gap-3">
+                                  {/* 文档图标 */}
+                                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${isStreaming ? 'bg-cyan-100 animate-pulse' : 'bg-white/80 shadow-sm group-hover:shadow-md'} transition-all`}>
+                                    <FileEdit size={24} className="text-cyan-600" />
+                                  </div>
+                                  {/* 信息 */}
+                                  <div className="flex-1">
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-semibold text-gray-800">
+                                        {templateData?.fileName || '生成的文档'}
+                                      </span>
+                                      {isStreaming && (
+                                        <span className="flex items-center gap-1 text-xs text-cyan-600 bg-cyan-50 px-2 py-0.5 rounded-full">
+                                          <Loader2 size={10} className="animate-spin" />
+                                          写入中
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
+                                      <span>{docData.content.length} 字符</span>
+                                      <span>·</span>
+                                      <span>{new Date().toLocaleTimeString()}</span>
+                                    </div>
+                                  </div>
+                                  {/* 操作提示 */}
+                                  {!isStreaming && (
+                                    <div className="flex items-center gap-1 text-cyan-600 opacity-0 group-hover:opacity-100 transition-opacity">
+                                      <Eye size={16} />
+                                      <span className="text-sm">查看</span>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* 底部进度条（流式时显示） */}
+                              {isStreaming && (
+                                <div className="h-1 bg-cyan-100">
+                                  <div className="h-full bg-gradient-to-r from-cyan-400 to-purple-400 animate-pulse" style={{ width: '60%' }} />
+                                </div>
+                              )}
+                            </div>
+                            {/* 文档后的文字 */}
+                            {docData.afterText && (
+                              <div className="whitespace-pre-wrap">{docData.afterText}</div>
+                            )}
+                          </div>
+                        );
+                      }
                       return (
                         <div className="whitespace-pre-wrap">
                           {message.content || (
                             <span className="flex items-center gap-2 text-gray-400">
                               <Loader2 size={14} className="animate-spin" />
-                              {pptMode ? '正在生成PPT...' : '正在思考...'}
+                              {pptMode ? '正在生成PPT...' : templateMode ? '正在生成文档...' : '正在思考...'}
                             </span>
                           )}
                         </div>
@@ -637,6 +958,96 @@ export default function ChatPage() {
 
         {/* 输入区 */}
         <div className="border-t border-gray-200 px-4 py-3">
+          {/* 模板写作模式 - 输入框左上角显示模板选择 */}
+          {templateMode && (
+            <div className="flex items-center gap-2 mb-2">
+              {/* 模板选择按钮 */}
+              <button
+                onClick={() => setShowTemplateManager(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg transition-colors bg-cyan-100 text-cyan-700 border border-cyan-300"
+              >
+                <FileText size={14} />
+                {templateData?.fileName || '选择模板'}
+                <ChevronDown size={12} />
+              </button>
+              {/* 预览模板 */}
+              {templateData && (
+                <button
+                  onClick={() => setShowTemplatePreview(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg transition-colors bg-gray-100 text-gray-600 hover:bg-cyan-50 hover:text-cyan-600 border border-gray-200"
+                  title="预览模板内容"
+                >
+                  <Eye size={14} />
+                  预览
+                </button>
+              )}
+              {/* 导出内容 */}
+              {messages.some(m => m.role === 'assistant' && m.content) && (
+                <button
+                  onClick={handleExportContent}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg transition-colors bg-gray-100 text-gray-600 hover:bg-cyan-50 hover:text-cyan-600 border border-gray-200"
+                  title="导出生成的内容"
+                >
+                  <Download size={14} />
+                  导出
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* 快速写作模式下显示模板和风格按钮 - 输入框左上角 */}
+          {selectedMode.id === 'quick_writing' && !templateMode && (
+            <div className="flex items-center gap-2 mb-2">
+              {/* 模板按钮 */}
+              <button
+                onClick={() => setShowTemplates(!showTemplates)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                  showTemplates || selectedTemplate
+                    ? 'bg-green-100 text-green-700 border border-green-300'
+                    : 'bg-gray-100 text-gray-600 hover:bg-green-50 hover:text-green-700 border border-gray-200'
+                }`}
+              >
+                <FileText size={14} />
+                {selectedTemplate ? selectedTemplate.name : '模板'}
+                <ChevronDown size={12} className={`transition-transform ${showTemplates ? 'rotate-180' : ''}`} />
+              </button>
+
+              {/* 风格按钮 */}
+              <div className="relative" ref={modeDropdownRef}>
+                <button
+                  onClick={() => setShowModeDropdown(!showModeDropdown)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                    showModeDropdown || selectedStyle.id !== 'none'
+                      ? 'bg-purple-100 text-purple-700 border border-purple-300'
+                      : 'bg-gray-100 text-gray-600 hover:bg-purple-50 hover:text-purple-700 border border-gray-200'
+                  }`}
+                >
+                  <Pen size={14} />
+                  {selectedStyle.id !== 'none' ? selectedStyle.name : '风格'}
+                  <ChevronDown size={12} className={`transition-transform ${showModeDropdown ? 'rotate-180' : ''}`} />
+                </button>
+
+                {/* 风格下拉框 - 向上弹出 */}
+                {showModeDropdown && (
+                  <div className="absolute bottom-full mb-1 left-0 w-48 bg-white border border-gray-200 rounded-lg shadow-xl z-30 overflow-hidden">
+                    {writingStyles.map(style => (
+                      <button
+                        key={style.id}
+                        onClick={() => { setSelectedStyle(style); setShowModeDropdown(false); }}
+                        className={`w-full text-left px-3 py-2 text-sm hover:bg-purple-50 transition-colors ${
+                          selectedStyle.id === style.id ? 'bg-purple-50 text-purple-700' : ''
+                        }`}
+                      >
+                        <p className="font-medium">{style.name}</p>
+                        <p className="text-xs text-gray-400">{style.description}</p>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           <div className="flex items-end gap-2">
             <div className="flex-1 relative">
               <textarea
@@ -647,7 +1058,7 @@ export default function ChatPage() {
                   handleTextareaInput();
                 }}
                 onKeyDown={handleKeyDown}
-                placeholder={pptMode ? "输入PPT主题，如：人工智能发展趋势..." : "输入消息，Shift+Enter 换行..."}
+                placeholder={pptMode ? "输入PPT主题，如：人工智能发展趋势..." : templateMode ? "输入写作需求，AI将根据模板格式生成内容..." : selectedMode.id === 'quick_writing' ? "选择模板或直接输入内容..." : "输入消息，Shift+Enter 换行..."}
                 rows={2}
                 className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent min-h-[60px] max-h-[200px] overflow-y-auto"
                 disabled={isStreaming}
@@ -678,43 +1089,53 @@ export default function ChatPage() {
           <div className="flex items-center gap-2 mt-3">
             {/* 知识库胶囊按钮 */}
             <button
-              onClick={() => setShowKBModal(true)}
+              onClick={() => { setKnowledgeBases(getAllKnowledgeBases()); setShowKBModal(true); }}
               className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-blue-50 text-blue-700 rounded-full hover:bg-blue-100 transition-colors border border-blue-200"
             >
               <Database size={14} />
-              <span>{selectedKB.icon} {selectedKB.name}</span>
+              <span>{selectedKB ? selectedKB.name : '不使用知识库'}</span>
               <ChevronDown size={14} />
             </button>
 
-            {/* 写作模式胶囊按钮 */}
-            <div className="relative" ref={modeDropdownRef}>
-              <button
-                onClick={() => setShowModeDropdown(!showModeDropdown)}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-purple-50 text-purple-700 rounded-full hover:bg-purple-100 transition-colors border border-purple-200"
-              >
-                <Pen size={14} />
-                <span>{selectedMode.name}</span>
-                <ChevronDown size={14} className={`transition-transform ${showModeDropdown ? 'rotate-180' : ''}`} />
-              </button>
+            {/* 快速写作按钮 */}
+            <button
+              onClick={() => {
+                if (selectedMode.id === 'quick_writing') {
+                  setSelectedMode(writingModes[0]); // 退出时切换到普通对话
+                } else {
+                  setSelectedMode(writingModes[1]); // 进入快速写作模式
+                }
+                setShowTemplates(false);
+                setShowModeDropdown(false);
+              }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-full transition-colors border ${
+                selectedMode.id === 'quick_writing'
+                  ? 'bg-green-100 text-green-700 border-green-300'
+                  : 'bg-green-50 text-green-600 border-green-200 hover:bg-green-100'
+              }`}
+            >
+              <Pen size={14} />
+              <span>{selectedMode.id === 'quick_writing' ? '退出快速写作' : '快速写作'}</span>
+            </button>
 
-              {/* 写作模式下拉框 */}
-              {showModeDropdown && (
-                <div className="absolute bottom-full mb-2 left-0 w-56 bg-white border border-gray-200 rounded-lg shadow-xl z-30 overflow-hidden">
-                  {writingModes.map(mode => (
-                    <button
-                      key={mode.id}
-                      onClick={() => { setSelectedMode(mode); setShowModeDropdown(false); }}
-                      className={`w-full text-left px-3 py-2.5 text-sm hover:bg-purple-50 transition-colors ${
-                        selectedMode.id === mode.id ? 'bg-purple-50 text-purple-700' : ''
-                      }`}
-                    >
-                      <p className="font-medium">{mode.name}</p>
-                      <p className="text-xs text-gray-400">{mode.description}</p>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+            {/* 模板写作按钮 */}
+            <button
+              onClick={() => {
+                if (templateMode) {
+                  exitTemplateMode();
+                } else {
+                  setShowTemplateManager(true);
+                }
+              }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-full transition-colors border ${
+                templateMode
+                  ? 'bg-cyan-100 text-cyan-700 border-cyan-300'
+                  : 'bg-cyan-50 text-cyan-600 border-cyan-200 hover:bg-cyan-100'
+              }`}
+            >
+              <Upload size={14} />
+              <span>{templateMode ? '退出模板写作' : '模板写作'}</span>
+            </button>
 
             {/* PPT工具按钮 */}
             <button
@@ -722,6 +1143,8 @@ export default function ChatPage() {
                 setPptMode(!pptMode);
                 if (!pptMode) {
                   setMessages([]);
+                  setTemplateMode(false);
+                  setTemplateData(null);
                 }
               }}
               className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-full transition-colors border ${
@@ -737,11 +1160,54 @@ export default function ChatPage() {
             <div className="flex-1" />
 
             <p className="text-xs text-gray-400">
-              {pptMode ? '🎨 PPT模式' : `模型: ${API_CONFIG.model}`}
+              {pptMode ? '🎨 PPT模式' : templateMode ? '📝 模板写作' : `模型: ${API_CONFIG.model}`}
             </p>
           </div>
         </div>
       </div>
+
+      {/* 隐藏的文件上传 input */}
+      <input
+        ref={templateFileInputRef}
+        type="file"
+        accept=".txt,.md,.docx"
+        onChange={handleTemplateFileUpload}
+        className="hidden"
+      />
+
+      {/* 模板选择弹窗 */}
+      {showTemplates && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowTemplates(false)}>
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl mx-4 overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <h3 className="font-semibold text-gray-800 flex items-center gap-2">
+                <FileText size={18} className="text-green-600" />
+                选择模板
+              </h3>
+              <button
+                onClick={() => setShowTemplates(false)}
+                className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-100 transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-4 max-h-96 overflow-y-auto">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                {promptTemplates.map(template => (
+                  <button
+                    key={template.id}
+                    onClick={() => handleTemplateSelect(template)}
+                    className="flex flex-col items-start p-4 bg-gray-50 border border-gray-200 rounded-lg hover:border-green-400 hover:bg-green-50 transition-colors text-left group"
+                  >
+                    <span className="text-xs text-gray-400 mb-1">{template.category}</span>
+                    <span className="text-sm font-medium text-gray-700 group-hover:text-green-700">{template.name}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 知识库选择弹窗 */}
       {showKBModal && (
@@ -760,28 +1226,61 @@ export default function ChatPage() {
               </button>
             </div>
             <div className="p-3 max-h-80 overflow-y-auto">
-              {knowledgeBases.map(kb => (
-                <button
-                  key={kb.id}
-                  onClick={() => { setSelectedKB(kb); setShowKBModal(false); }}
-                  className={`w-full text-left px-4 py-3 rounded-lg transition-colors flex items-start gap-3 mb-1 ${
-                    selectedKB.id === kb.id
-                      ? 'bg-blue-50 border-2 border-blue-300'
-                      : 'hover:bg-gray-50 border-2 border-transparent'
-                  }`}
-                >
-                  <span className="text-2xl">{kb.icon}</span>
-                  <div>
-                    <p className={`font-medium ${selectedKB.id === kb.id ? 'text-blue-700' : 'text-gray-800'}`}>
-                      {kb.name}
-                    </p>
-                    <p className="text-xs text-gray-500 mt-0.5">{kb.description}</p>
-                  </div>
-                  {selectedKB.id === kb.id && (
-                    <Check size={18} className="text-blue-600 ml-auto shrink-0" />
-                  )}
-                </button>
-              ))}
+              {/* 不使用知识库选项 */}
+              <button
+                onClick={() => { setSelectedKB(null); setShowKBModal(false); }}
+                className={`w-full text-left px-4 py-3 rounded-lg transition-colors flex items-start gap-3 mb-1 ${
+                  selectedKB === null
+                    ? 'bg-gray-100 border-2 border-gray-300'
+                    : 'hover:bg-gray-50 border-2 border-transparent'
+                }`}
+              >
+                <div className="w-8 h-8 bg-gray-100 rounded-lg flex items-center justify-center shrink-0">
+                  <X size={16} className="text-gray-400" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className={`font-medium ${selectedKB === null ? 'text-gray-700' : 'text-gray-600'}`}>
+                    不使用知识库
+                  </p>
+                  <p className="text-xs text-gray-400 mt-0.5">AI 将仅基于自身知识回答</p>
+                </div>
+                {selectedKB === null && (
+                  <Check size={18} className="text-gray-500 shrink-0" />
+                )}
+              </button>
+
+              {/* 知识库列表 */}
+              {knowledgeBases.length === 0 ? (
+                <div className="text-center py-6 text-gray-500">
+                  <p className="text-xs text-gray-400">暂无知识库，可在知识库管理中创建</p>
+                </div>
+              ) : (
+                knowledgeBases.map(kb => (
+                  <button
+                    key={kb.id}
+                    onClick={() => { setSelectedKB(kb); setShowKBModal(false); }}
+                    className={`w-full text-left px-4 py-3 rounded-lg transition-colors flex items-start gap-3 mb-1 ${
+                      selectedKB?.id === kb.id
+                        ? 'bg-blue-50 border-2 border-blue-300'
+                        : 'hover:bg-gray-50 border-2 border-transparent'
+                    }`}
+                  >
+                    <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center shrink-0">
+                      <Database size={16} className="text-indigo-500" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className={`font-medium ${selectedKB?.id === kb.id ? 'text-blue-700' : 'text-gray-800'}`}>
+                        {kb.name}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-0.5 truncate">{kb.description || '无描述'}</p>
+                      <p className="text-xs text-gray-400 mt-1">{kb.documents.length} 个文档 · {kb.totalChunks} 个分块</p>
+                    </div>
+                    {selectedKB?.id === kb.id && (
+                      <Check size={18} className="text-blue-600 shrink-0" />
+                    )}
+                  </button>
+                ))
+              )}
             </div>
             <div className="px-5 py-3 border-t border-gray-100 bg-gray-50">
               <button
@@ -897,6 +1396,275 @@ export default function ChatPage() {
                 </div>
               </button>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* 模板管理弹窗 */}
+      {showTemplateManager && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowTemplateManager(false)}>
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl mx-4 overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <h3 className="font-semibold text-gray-800 flex items-center gap-2">
+                <FileText size={18} className="text-cyan-600" />
+                选择或上传模板
+              </h3>
+              <button
+                onClick={() => setShowTemplateManager(false)}
+                className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-100 transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-4">
+              {/* 上传区域 */}
+              <div
+                onClick={() => templateFileInputRef.current?.click()}
+                className="border-2 border-dashed border-cyan-200 rounded-xl p-6 text-center cursor-pointer hover:border-cyan-400 hover:bg-cyan-50/50 transition-colors mb-4"
+              >
+                <Upload size={32} className="mx-auto text-cyan-400 mb-2" />
+                <p className="text-sm font-medium text-gray-700">点击上传新模板</p>
+                <p className="text-xs text-gray-400 mt-1">支持 .txt、.md、.docx 格式</p>
+              </div>
+
+              {/* 历史模板网格 */}
+              {storedTemplates.length > 0 && (
+                <>
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-sm font-medium text-gray-600">历史模板</span>
+                    <span className="text-xs text-gray-400">{storedTemplates.length} 个模板</span>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3 max-h-64 overflow-y-auto">
+                    {storedTemplates.map(tpl => (
+                      <div
+                        key={tpl.id}
+                        className={`relative group p-3 rounded-lg border cursor-pointer transition-all hover:shadow-md ${
+                          templateData?.id === tpl.id
+                            ? 'border-cyan-400 bg-cyan-50'
+                            : 'border-gray-200 hover:border-cyan-300 hover:bg-gray-50'
+                        }`}
+                        onClick={() => {
+                          setTemplateData(tpl);
+                          setTemplateMode(true);
+                          setPptMode(false);
+                          setMessages([]);
+                          setShowTemplateManager(false);
+                        }}
+                      >
+                        <div className="flex items-start gap-2">
+                          <FileText size={16} className="text-cyan-500 shrink-0 mt-0.5" />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-gray-700 truncate">{tpl.fileName}</p>
+                            <p className="text-xs text-gray-400 mt-1">{tpl.content.length} 字符</p>
+                          </div>
+                        </div>
+                        {/* 删除按钮 */}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteStoredTemplate(tpl.id);
+                            setStoredTemplates(getStoredTemplates());
+                            if (templateData?.id === tpl.id) {
+                              setTemplateData(null);
+                              setTemplateMode(false);
+                            }
+                          }}
+                          className="absolute top-1 right-1 p-1 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                          title="删除模板"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {storedTemplates.length === 0 && (
+                <p className="text-center text-sm text-gray-400 py-4">暂无历史模板，请上传新模板</p>
+              )}
+            </div>
+            {templateMode && (
+              <div className="px-5 py-3 border-t border-gray-100 bg-gray-50 flex justify-between items-center">
+                <button
+                  onClick={() => {
+                    exitTemplateMode();
+                    setShowTemplateManager(false);
+                  }}
+                  className="px-4 py-2 text-gray-600 hover:text-red-500 text-sm transition-colors"
+                >
+                  退出模板模式
+                </button>
+                <button
+                  onClick={() => setShowTemplateManager(false)}
+                  className="px-4 py-2 bg-cyan-600 text-white rounded-lg text-sm font-medium hover:bg-cyan-700 transition-colors"
+                >
+                  确定
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 模板预览弹窗 */}
+      {showTemplatePreview && templateData && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowTemplatePreview(false)}>
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl mx-4 max-h-[80vh] overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <h3 className="font-semibold text-gray-800 flex items-center gap-2">
+                <FileText size={18} className="text-cyan-600" />
+                模板内容预览
+              </h3>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-400">{templateData.fileName}</span>
+                <button
+                  onClick={() => setShowTemplatePreview(false)}
+                  className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-100 transition-colors"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+            </div>
+            <div className="p-5 overflow-y-auto max-h-[60vh]">
+              <pre className="whitespace-pre-wrap text-sm text-gray-700 font-sans leading-relaxed">
+                {templateData.content}
+              </pre>
+            </div>
+            <div className="px-5 py-3 border-t border-gray-100 bg-gray-50 flex justify-end">
+              <button
+                onClick={() => setShowTemplatePreview(false)}
+                className="px-4 py-2 bg-cyan-600 text-white rounded-lg text-sm font-medium hover:bg-cyan-700 transition-colors"
+              >
+                关闭
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 右侧文档编辑器面板 - 半屏展示 */}
+      {showDocumentEditor && (
+        <div className="w-1/2 flex flex-col bg-white rounded-lg shadow-sm overflow-hidden">
+          {/* 编辑器顶部工具栏 */}
+          <div className="border-b border-gray-200">
+            {/* 第一行：文件操作 */}
+            <div className="flex items-center justify-between px-4 py-2 border-b border-gray-100">
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <FileEdit size={18} className="text-cyan-600" />
+                  <span className="font-medium text-gray-800 text-sm">
+                    {templateData?.fileName || '未命名文档'}
+                  </span>
+                </div>
+              </div>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => {
+                    const blob = new Blob([documentContent], { type: 'text/plain;charset=utf-8' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `${templateData?.fileName?.replace(/\.[^/.]+$/, '') || '文档'}_生成.txt`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  }}
+                  className="flex items-center gap-1 px-2 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                  title="保存为文件"
+                >
+                  <Save size={14} />
+                  <span>保存</span>
+                </button>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(documentContent);
+                    alert('已复制到剪贴板');
+                  }}
+                  className="flex items-center gap-1 px-2 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                  title="复制全部内容"
+                >
+                  <Copy size={14} />
+                  <span>复制</span>
+                </button>
+                <button
+                  onClick={() => window.print()}
+                  className="flex items-center gap-1 px-2 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                  title="打印"
+                >
+                  <Printer size={14} />
+                  <span>打印</span>
+                </button>
+                <div className="w-px h-5 bg-gray-200 mx-1" />
+                <button
+                  onClick={() => setShowDocumentEditor(false)}
+                  className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                  title="关闭编辑器"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+            {/* 第二行：格式工具栏 */}
+            <div className="flex items-center gap-1 px-3 py-1.5">
+              <div className="flex items-center gap-0.5 pr-2 border-r border-gray-200">
+                <button className="p-1.5 text-gray-600 hover:bg-gray-100 rounded transition-colors" title="字体">
+                  <Type size={14} />
+                </button>
+              </div>
+              <div className="flex items-center gap-0.5 px-2 border-r border-gray-200">
+                <button className="p-1.5 text-gray-600 hover:bg-gray-100 rounded transition-colors" title="加粗">
+                  <Bold size={14} />
+                </button>
+                <button className="p-1.5 text-gray-600 hover:bg-gray-100 rounded transition-colors" title="斜体">
+                  <Italic size={14} />
+                </button>
+                <button className="p-1.5 text-gray-600 hover:bg-gray-100 rounded transition-colors" title="下划线">
+                  <Underline size={14} />
+                </button>
+              </div>
+              <div className="flex items-center gap-0.5 px-2">
+                <button className="p-1.5 text-gray-600 hover:bg-gray-100 rounded transition-colors" title="左对齐">
+                  <AlignLeft size={14} />
+                </button>
+                <button className="p-1.5 text-gray-600 hover:bg-gray-100 rounded transition-colors" title="居中">
+                  <AlignCenter size={14} />
+                </button>
+                <button className="p-1.5 text-gray-600 hover:bg-gray-100 rounded transition-colors" title="右对齐">
+                  <AlignRight size={14} />
+                </button>
+              </div>
+              <div className="flex-1" />
+              <span className="text-xs text-gray-400">{documentContent.length} 字符</span>
+            </div>
+          </div>
+
+          {/* 文档编辑区 - 模拟 A4 纸张 */}
+          <div ref={documentEditorContainerRef} onScroll={handleEditorScroll} className="flex-1 overflow-auto bg-gray-100 p-4">
+            <div className="bg-white shadow-md rounded mx-auto" style={{
+              width: '100%',
+              maxWidth: '595px', // A4 宽度的缩放版
+              minHeight: '842px', // A4 高度的缩放版
+              padding: '48px 40px'
+            }}>
+              <textarea
+                ref={documentEditorRef}
+                value={documentContent}
+                onChange={(e) => {
+                  setDocumentContent(e.target.value);
+                  // 自动调整高度
+                  e.target.style.height = 'auto';
+                  e.target.style.height = e.target.scrollHeight + 'px';
+                }}
+                className="w-full resize-none border-none outline-none text-gray-800 leading-relaxed overflow-hidden"
+                style={{
+                  fontFamily: 'SimSun, "宋体", serif',
+                  fontSize: '13px',
+                  lineHeight: '1.8',
+                  minHeight: '700px',
+                }}
+                placeholder="文档内容将显示在这里..."
+              />
+            </div>
           </div>
         </div>
       )}

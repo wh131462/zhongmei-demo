@@ -65,3 +65,38 @@ export interface UploadedDailyFile {
   content: string;
   uploadTime: number;
 }
+
+// 知识库文档分块
+export interface DocumentChunk {
+  id: string;
+  content: string;
+  metadata: {
+    source: string; // 来源文件名
+    chunkIndex: number;
+    totalChunks: number;
+  };
+}
+
+// 知识库文档
+export interface KBDocument {
+  id: string;
+  fileName: string;
+  fileType: string;
+  fileSize: number;
+  content: string; // 原始内容
+  chunks: DocumentChunk[]; // 分块后的内容
+  uploadedAt: number;
+  status: 'processing' | 'ready' | 'error';
+}
+
+// 知识库类型
+export interface KnowledgeBase {
+  id: string;
+  name: string;
+  description: string;
+  documents: KBDocument[];
+  totalChunks: number;
+  totalSize: number;
+  createdAt: number;
+  updatedAt: number;
+}

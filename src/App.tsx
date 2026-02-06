@@ -1,10 +1,8 @@
 import { BrowserRouter as Router, Routes, Route, NavLink } from 'react-router-dom';
-import { FileText, ClipboardCheck, CalendarDays, MessageSquare, PenTool } from 'lucide-react';
-import DocumentPage from './pages/DocumentPage';
-import ApprovalPage from './pages/ApprovalPage';
+import { CalendarDays, MessageSquare, Database } from 'lucide-react';
 import ReportPage from './pages/ReportPage';
 import ChatPage from './pages/ChatPage';
-import AIWritingPage from './pages/AIWritingPage';
+import KnowledgeBasePage from './pages/KnowledgeBasePage';
 
 function App() {
   return (
@@ -17,27 +15,6 @@ function App() {
               <span className="text-lg font-bold text-blue-600 mr-8">中煤 Demo</span>
               <div className="flex space-x-1">
                 <NavLink
-                  to="/"
-                  end
-                  className={({ isActive }) =>
-                    `flex items-center gap-2 px-4 py-2 rounded-lg text-sm transition-colors ${isActive ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-600 hover:bg-gray-100'
-                    }`
-                  }
-                >
-                  <FileText size={16} />
-                  模板套用与格式整理
-                </NavLink>
-                <NavLink
-                  to="/approval"
-                  className={({ isActive }) =>
-                    `flex items-center gap-2 px-4 py-2 rounded-lg text-sm transition-colors ${isActive ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-600 hover:bg-gray-100'
-                    }`
-                  }
-                >
-                  <ClipboardCheck size={16} />
-                  审批管理
-                </NavLink>
-                <NavLink
                   to="/report"
                   className={({ isActive }) =>
                     `flex items-center gap-2 px-4 py-2 rounded-lg text-sm transition-colors ${isActive ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-600 hover:bg-gray-100'
@@ -45,7 +22,7 @@ function App() {
                   }
                 >
                   <CalendarDays size={16} />
-                  周报月报合并
+                  报告
                 </NavLink>
                 <NavLink
                   to="/chat"
@@ -58,14 +35,14 @@ function App() {
                   AI 对话
                 </NavLink>
                 <NavLink
-                  to="/writing"
+                  to="/knowledge"
                   className={({ isActive }) =>
                     `flex items-center gap-2 px-4 py-2 rounded-lg text-sm transition-colors ${isActive ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-600 hover:bg-gray-100'
                     }`
                   }
                 >
-                  <PenTool size={16} />
-                  AI 写作
+                  <Database size={16} />
+                  知识库
                 </NavLink>
               </div>
             </div>
@@ -75,11 +52,10 @@ function App() {
         {/* 页面内容 */}
         <main className="max-w-7xl mx-auto px-4 py-6">
           <Routes>
-            <Route path="/" element={<DocumentPage />} />
-            <Route path="/approval" element={<ApprovalPage />} />
+            <Route path="/" element={<ChatPage />} />
             <Route path="/report" element={<ReportPage />} />
             <Route path="/chat" element={<ChatPage />} />
-            <Route path="/writing" element={<AIWritingPage />} />
+            <Route path="/knowledge" element={<KnowledgeBasePage />} />
           </Routes>
         </main>
       </div>
